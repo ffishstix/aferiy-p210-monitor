@@ -1,0 +1,14 @@
+# Local credentials and machine state
+.env
+.env.*
+*.secret
+secrets/
+credentials/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+.wrangler/
+node_modules/
+dist/
+
