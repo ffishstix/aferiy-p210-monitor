@@ -11,20 +11,8 @@ const clock = minutes => {
   return rounded < 60 ? `${rounded} min` : `${Math.floor(rounded / 60)}h ${rounded % 60}m`;
 };
 
-function showLogin() {
-  $('login').hidden = false; $('dashboard').hidden = true; $('signout').hidden = true;
-  $('connection').textContent = 'Private dashboard'; $('connection').className = 'connection';
-  clearInterval(timer);
-}
-
-function showDashboard() {
-  $('login').hidden = true; $('dashboard').hidden = false; $('signout').hidden = false;
-  refresh(); clearInterval(timer); timer = setInterval(refresh, 30000);
-}
-
 async function get(url) {
-  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
-  if (response.status === 401) { showLogin(); throw new Error('Sign in required'); }
+  const response = await fetch(url, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Server error ${response.status}`);
   return response.json();
 }
@@ -44,16 +32,7 @@ function renderStatus({ sample: s, status }) {
   $('grid').textContent = s?.grid_present == null ? '—' : s.grid_present ? 'Present' : 'Absent';
   $('input-detail').textContent = s?.ac_input_w != null || s?.dc_input_w != null ? `AC ${value(s.ac_input_w)} W · DC ${value(s.dc_input_w)} W` : 'All input sources';
   $('health-title').textContent = status === 'no_data' ? 'No data yet' : status === 'stale' ? 'Reading is stale' : status === 'fault' ? 'Fault reported' : 'Receiving readings';
-  $('health-detail').textContent = s ? `Last received ${when(s.received_at)}. Device ${s.device_id}.` : 'Connection information will appear after the first reading.';
-  const raw = (() => { try { return JSON.parse(s?.raw_json || '{}'); } catch { return {}; } })();
-  const entries = Object.entries(raw).slice(0, 150);
-  $('raw-readings').replaceChildren();
-  if (!entries.length) $('raw-readings').textContent = 'No raw fields received yet.';
-  else for (const [key, val] of entries) {
-    const row = document.createElement('div'), label = document.createElement('span'), reading = document.createElement('strong');
-    label.textContent = key; reading.textContent = typeof val === 'object' ? JSON.stringify(val) : String(val);
-    row.append(label, reading); $('raw-readings').append(row);
-  }
+  $('health-detail').textContent = s ? `Last received ${when(s.received_at)}.` : 'Connection information will appear after the first reading.';
 }
 
 function renderChart(samples, hours) {
@@ -101,15 +80,9 @@ function renderPowerChart(samples, hours) {
 
 async function refresh() {
   try { const [status, history] = await Promise.all([get('/api/status'), get(`/api/history?hours=${currentHours}`)]); renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours); }
-  catch (error) { if (error.message !== 'Sign in required') { $('connection').textContent = 'Website unavailable'; $('connection').className = 'connection warning'; } }
+  catch { $('connection').textContent = 'Website unavailable'; $('connection').className = 'connection warning'; }
 }
 
-$('login-form').addEventListener('submit', async event => {
-  event.preventDefault(); $('login-error').textContent = '';
-  const response = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: $('password').value }) });
-  if (response.ok) { $('password').value = ''; showDashboard(); } else $('login-error').textContent = (await response.json()).error || 'Could not sign in';
-});
-$('signout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); showLogin(); });
 $('compact-toggle').addEventListener('click', () => {
   document.body.classList.toggle('compact');
   const url = new URL(location.href);
@@ -119,5 +92,5 @@ $('compact-toggle').addEventListener('click', () => {
 });
 if (document.body.classList.contains('compact')) $('compact-toggle').textContent = 'Full view';
 document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => { currentHours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button)); refresh(); }));
-get('/api/status').then(() => showDashboard()).catch(() => showLogin());
+refresh(); timer = setInterval(refresh, 30000);
 

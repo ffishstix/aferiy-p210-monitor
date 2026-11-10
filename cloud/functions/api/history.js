@@ -1,6 +1,5 @@
-import { authorised, json } from './_lib.js';
+import { json } from './_lib.js';
 export async function onRequestGet({ request, env }) {
-  if (!await authorised(request, env)) return json({ error: 'Sign in required' }, 401);
   const url = new URL(request.url);
   const hours = Math.min(720, Math.max(1, Number(url.searchParams.get('hours')) || 24));
   const since = new Date(Date.now() - hours * 3600000).toISOString();

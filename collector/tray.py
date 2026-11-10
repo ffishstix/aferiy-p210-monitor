@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import ctypes
 from datetime import datetime, timezone
-from http.cookiejar import CookieJar
 import json
-import os
 from pathlib import Path
 import sqlite3
 import subprocess
 import threading
 import traceback
-from urllib.error import HTTPError, URLError
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.error import URLError
+from urllib.request import urlopen
 import webbrowser
 
 from PIL import Image, ImageDraw
@@ -21,7 +19,6 @@ from PIL import Image, ImageDraw
 from monitor import DEFAULT_DATA_DIR
 
 DASHBOARD_URL = "https://aferiy-p210-monitor.pages.dev"
-PASSWORD_FILE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AferiyMonitor" / "dashboard-password.txt"
 
 
 def open_compact():
@@ -34,30 +31,11 @@ def open_compact():
 
 
 class CloudDashboard:
-    def __init__(self, password_file: Path = PASSWORD_FILE):
-        self.password_file = password_file
-        self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
-
     def fetch(self) -> dict | None:
-        def status():
-            with self.opener.open(DASHBOARD_URL + "/api/status", timeout=8) as response:
+        try:
+            with urlopen(DASHBOARD_URL + "/api/status", timeout=8) as response:
                 return json.load(response).get("sample")
-
-        try:
-            return status()
-        except HTTPError as error:
-            if error.code != 401:
-                return None
         except (URLError, TimeoutError, ValueError):
-            return None
-        try:
-            password = self.password_file.read_text(encoding="utf-8").strip()
-            body = json.dumps({"password": password}).encode("utf-8")
-            request = Request(DASHBOARD_URL + "/api/login", body, {"Content-Type": "application/json"}, method="POST")
-            with self.opener.open(request, timeout=8):
-                pass
-            return status()
-        except (OSError, URLError, TimeoutError, ValueError):
             return None
 
 

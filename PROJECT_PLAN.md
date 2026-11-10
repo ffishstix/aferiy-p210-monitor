@@ -2,7 +2,7 @@
 
 ## Current state
 
-The password-protected website and D1 database are live. A Cloudflare Worker logs into a separate BrightEMS account, finds the P210, and saves a reading every minute. On 10 November 2026, the cloud reported 28.7% charge, 451 W input, and 151 W output; the owner confirmed the input and output matched BrightEMS at that time. The Windows tray icon is installed and reads the hosted website. It has simulated alert tests, but a real low-battery discharge test remains.
+The public read-only website and D1 database are live. A Cloudflare Worker logs into a separate BrightEMS account, finds the P210, and saves a reading every minute. On 10 November 2026, the cloud reported 28.7% charge, 451 W input, and 151 W output; the owner confirmed the input and output matched BrightEMS at that time. The Windows tray icon is installed and reads the hosted website. It has simulated alert tests, but a real low-battery discharge test remains.
 
 ## Architecture
 
@@ -33,7 +33,7 @@ The cloud protocol is based on the community [fossibot-ha integration](https://g
 
 | Part | Location | State |
 | --- | --- | --- |
-| Hosted dashboard and history | `cloud/` | Deployed; charge and power graphs built |
+| Hosted dashboard and history | `cloud/` | Public read-only; charge and power graphs built |
 | Cloud collector | `worker/` | Deployed; minute-by-minute readings received |
 | Windows tray icon and alerts | `collector/tray.py` | Installed; reads hosted status; real outage test remains |
 | LAN broker/collector prototype | `collector/` | Superseded; not required for PC-off logging |

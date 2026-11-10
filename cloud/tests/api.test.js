@@ -1,16 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeSession, authorised, statusOf } from '../functions/api/_lib.js';
+import { statusOf } from '../functions/api/_lib.js';
 import { onRequestPost as ingest } from '../functions/api/ingest.js';
 import { onRequestGet as history } from '../functions/api/history.js';
+import { onRequestGet as status } from '../functions/api/status.js';
 
-test('session authenticates and rejects tampering', async () => {
-  const secret = 'test-session-secret';
-  const session = await makeSession(secret);
-  const request = new Request('https://example.com/api/status', { headers: { cookie: `battery_session=${session}` } });
-  assert.equal(await authorised(request, { SESSION_SECRET: secret }), true);
-  const tampered = new Request('https://example.com/api/status', { headers: { cookie: `battery_session=${session.slice(0, -1)}${session.at(-1) === '0' ? '1' : '0'}` } });
-  assert.equal(await authorised(tampered, { SESSION_SECRET: secret }), false);
+test('status is public and selects only displayed measurements', async () => {
+  let sql;
+  const sample = { recorded_at: new Date().toISOString(), received_at: new Date().toISOString(), charge_percent: 50, input_w: 0, output_w: 20, grid_present: 0, discharging: 1 };
+  const env = { DB: { prepare(query) { sql = query; return { first: async () => sample }; } } };
+  const response = await status({ env });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).sample, sample);
+  assert.match(sql, /SELECT recorded_at, received_at/);
+  assert.doesNotMatch(sql, /\bdevice_id\b|\braw_json\b|SELECT \*/);
 });
 
 test('old readings are stale and outage readings are discharging', () => {
@@ -31,11 +34,9 @@ test('ingest requires a secret and validates values before writing', async () =>
 });
 
 test('month history groups samples into bounded time buckets', async () => {
-  const secret = 'history-secret';
-  const session = await makeSession(secret);
   let sql, bindings;
-  const env = { SESSION_SECRET: secret, DB: { prepare(query) { sql = query; return { bind(...args) { bindings = args; return { all: async () => ({ results: [] }) }; } }; } } };
-  const request = new Request('https://example.com/api/history?hours=720', { headers: { cookie: `battery_session=${session}` } });
+  const env = { DB: { prepare(query) { sql = query; return { bind(...args) { bindings = args; return { all: async () => ({ results: [] }) }; } }; } } };
+  const request = new Request('https://example.com/api/history?hours=720');
   const response = await history({ request, env });
   const result = await response.json();
   assert.equal(response.status, 200);

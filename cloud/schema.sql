@@ -17,9 +17,4 @@ CREATE TABLE IF NOT EXISTS telemetry (
   UNIQUE(device_id, sample_id)
 );
 CREATE INDEX IF NOT EXISTS telemetry_device_time ON telemetry(device_id, recorded_at DESC);
-CREATE TABLE IF NOT EXISTS login_attempts (
-  ip_hash TEXT PRIMARY KEY,
-  window_start INTEGER NOT NULL,
-  failures INTEGER NOT NULL
-);
 
