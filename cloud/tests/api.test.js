@@ -4,6 +4,9 @@ import { statusOf } from '../functions/api/_lib.js';
 import { onRequestPost as ingest } from '../functions/api/ingest.js';
 import { onRequestGet as history } from '../functions/api/history.js';
 import { onRequestGet as status } from '../functions/api/status.js';
+import { authorised, makeSession } from '../functions/api/control/_auth.js';
+import { controlState } from '../functions/api/control/_state.js';
+import { onRequestGet as controlStatus } from '../functions/api/control/state.js';
 
 test('status is public and selects only displayed measurements', async () => {
   let sql;
@@ -14,6 +17,31 @@ test('status is public and selects only displayed measurements', async () => {
   assert.deepEqual((await response.json()).sample, sample);
   assert.match(sql, /SELECT recorded_at, received_at/);
   assert.doesNotMatch(sql, /\bdevice_id\b|\braw_json\b|SELECT \*/);
+});
+
+test('controls require a signed session and expose no raw registers', async () => {
+  const env = { SESSION_SECRET: 'test-secret', DB: { prepare() { return { first: async () => ({ received_at: new Date().toISOString(), raw_json: JSON.stringify({ holdingRegisters: new Array(80).fill(0), inputRegisters: new Array(80).fill(0) }) }) }; } } };
+  const anonymous = await controlStatus({ request: new Request('https://example.com/api/control/state'), env });
+  assert.equal(anonymous.status, 401);
+  const token = await makeSession(env.SESSION_SECRET);
+  const request = new Request('https://example.com/api/control/state', { headers: { cookie: `battery_control_session=${token}` } });
+  assert.equal(await authorised(request, env), true);
+  const response = await controlStatus({ request, env });
+  assert.equal(response.status, 200);
+  assert.equal(JSON.stringify(await response.json()).includes('holdingRegisters'), false);
+});
+
+test('control state decodes output bits and documented limits', () => {
+  const holding = new Array(80).fill(0), input = new Array(80).fill(0);
+  holding[5] = 0; holding[11] = 52; holding[13] = 3; holding[66] = 150; holding[67] = 900;
+  input[41] = 1 << 11; input[25] = 2;
+  const result = controlState({ received_at: new Date().toISOString(), raw_json: JSON.stringify({ holdingRegisters: holding, inputRegisters: input }) });
+  assert.equal(result.available, true);
+  assert.equal(result.settings.acOutput, true);
+  assert.equal(result.settings.dcOutput, false);
+  assert.equal(result.settings.ledMode, 2);
+  assert.equal(result.settings.dischargeLimit, 15);
+  assert.equal(result.settings.chargeLimit, 90);
 });
 
 test('old readings are stale and outage readings are discharging', () => {
