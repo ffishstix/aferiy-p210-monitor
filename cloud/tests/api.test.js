@@ -32,9 +32,9 @@ test('controls require a signed session and expose no raw registers', async () =
 });
 
 test('control state decodes output bits and documented limits', () => {
-  const holding = new Array(80).fill(0), input = new Array(80).fill(0);
-  holding[5] = 0; holding[11] = 52; holding[13] = 3; holding[66] = 150; holding[67] = 900;
-  input[41] = 1 << 11; input[25] = 2;
+  const holding = new Array(86).fill(0), input = new Array(80).fill(0);
+  holding[13] = 3; holding[26] = 1; holding[66] = 150; holding[67] = 900;
+  input[27] = 1; input[28] = 2;
   const result = controlState({ received_at: new Date().toISOString(), raw_json: JSON.stringify({ holdingRegisters: holding, inputRegisters: input }) });
   assert.equal(result.available, true);
   assert.equal(result.settings.acOutput, true);

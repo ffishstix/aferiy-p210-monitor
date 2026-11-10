@@ -39,9 +39,9 @@ async function credentials(env) {
 }
 function waitForReading(ws, deviceId, address, count) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('MQTT reading timed out')), 12000);
-    let subscribed = false, firstReading = null, holdingTimer = null;
-    const finish = (error, result) => { clearTimeout(timer); clearTimeout(holdingTimer); ws.removeEventListener('message', onMessage); ws.removeEventListener('close', onClose); ws.removeEventListener('error', onError); error ? reject(error) : resolve(result); };
+    const timer = setTimeout(() => reject(new Error('MQTT reading timed out')), 20000);
+    let subscribed = false, firstReading = null, holdingTimer = null, holdingDelay = null;
+    const finish = (error, result) => { clearTimeout(timer); clearTimeout(holdingTimer); clearTimeout(holdingDelay); ws.removeEventListener('message', onMessage); ws.removeEventListener('close', onClose); ws.removeEventListener('error', onError); error ? reject(error) : resolve(result); };
     const onClose = () => finish(firstReading ? null : new Error('MQTT closed before reading'), firstReading);
     const onError = () => finish(firstReading ? null : new Error('MQTT socket error'), firstReading);
     const onMessage = event => {
@@ -57,13 +57,21 @@ function waitForReading(ws, deviceId, address, count) {
           const reading = decodeModbus(packet.payload);
           if (reading && !firstReading) {
             firstReading = reading;
-            ws.send(publishPacket(`${deviceId}/client/request/data`, readRequest(address, 3, Math.max(count, 86))));
-            holdingTimer = setTimeout(() => finish(null, firstReading), 2500);
+            // The device processes the input and settings requests serially.
+            holdingDelay = setTimeout(() => {
+              ws.send(publishPacket(`${deviceId}/client/request/data`, readRequest(address, 3, Math.max(count, 86))));
+              holdingTimer = setTimeout(() => {
+                firstReading.named.holdingRead ||= { received: false };
+                finish(null, firstReading);
+              }, 8000);
+            }, 500);
           } else if (firstReading) {
             const holding = decodeHolding(packet.payload);
             if (holding) {
               firstReading.named = { ...firstReading.named, ...holding };
               finish(null, firstReading);
+            } else if (packet.payload[1] === 3) {
+              firstReading.named.holdingRead = { received: true, length: packet.payload.length, count: (packet.payload[4] << 8) | packet.payload[5] };
             }
           }
         }
