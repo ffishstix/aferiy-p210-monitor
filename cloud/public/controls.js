@@ -7,7 +7,7 @@ const groups = [
     { key: 'ledMode', label: 'LED light', kind: 'select', options: [[0, 'Off'], [1, 'On'], [2, 'SOS'], [3, 'Flash']] },
   ] },
   { title: 'Charging', fields: [
-    { key: 'acChargingRate', label: 'AC charging rate', kind: 'select', options: [[1, 'Level 1'], [2, 'Level 2'], [3, 'Level 3'], [4, 'Level 4'], [5, 'Level 5']] },
+    { key: 'acChargingRate', label: 'AC charging power', kind: 'select', options: [[1, '300 W'], [2, '500 W'], [3, '700 W'], [4, '900 W'], [5, '1100 W']], note: 'Target AC input power; actual charging power may vary.' },
     { key: 'dcInputType', label: 'DC input mode', kind: 'select', options: [[0, 'Solar (MPPT)'], [1, 'DC source']] },
     { key: 'dcInputCurrent', label: 'DC charging current', kind: 'number', min: 1, max: 20, unit: 'A' },
     { key: 'chargeLimit', label: 'Charge limit', kind: 'number', min: 60, max: 100, unit: '%' },
