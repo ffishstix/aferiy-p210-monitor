@@ -25,7 +25,7 @@ The cloud protocol is based on the community [fossibot-ha integration](https://g
 
 1. Leave the PC off for a short safe period, then confirm the Cloudflare history continued updating. The account secrets are installed in Cloudflare, outside the repository; the local receiver is disabled.
 2. Compare all available BrightEMS fields against the saved raw registers, especially AC/grid presence, faults, individual ports, and the device's own remaining-time field. The current site shows charge, total/source input, total output, power-flow state, and a rough ETA.
-3. Display every verified reported field and mark absent fields as unavailable. The Worker saves all 80 input registers and named fields, but not all settings/holding registers yet. Its runtime figure uses the P210's rated 2048 Wh capacity and current load; compare it with actual discharge behaviour before relying on it.
+3. Display every verified reported field and mark absent fields as unavailable. The Worker saves all 80 input registers and tries a separate read-only request for 86 settings/holding registers. Its runtime figure uses the P210's rated 2048 Wh capacity and current load; compare it with actual discharge behaviour before relying on it.
 4. Check the charge and power history graphs, stale-data handling, and the 15% tray notification during a safe discharge test. The tray never shuts down Windows automatically.
 5. Set a suitable history retention/export policy after observing sample volume. Check Cloudflare D1 usage and Worker failures in the dashboard.
 

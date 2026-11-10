@@ -1,4 +1,4 @@
-import { connectPacket, decodeModbus, md5, parsePacket, publishPacket, readRequest, signature, subscribePacket } from './protocol.js';
+import { connectPacket, decodeHolding, decodeModbus, md5, parsePacket, publishPacket, readRequest, signature, subscribePacket } from './protocol.js';
 
 // BrightEMS cloud protocol, based on the community Fossibot Home Assistant integration.
 const API_URL = 'https://api.next.bspapp.com/client';
@@ -40,10 +40,10 @@ async function credentials(env) {
 function waitForReading(ws, deviceId, address, count) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('MQTT reading timed out')), 12000);
-    let subscribed = false;
-    const finish = (error, result) => { clearTimeout(timer); ws.removeEventListener('message', onMessage); ws.removeEventListener('close', onClose); ws.removeEventListener('error', onError); error ? reject(error) : resolve(result); };
-    const onClose = () => finish(new Error('MQTT closed before reading'));
-    const onError = () => finish(new Error('MQTT socket error'));
+    let subscribed = false, firstReading = null, holdingTimer = null;
+    const finish = (error, result) => { clearTimeout(timer); clearTimeout(holdingTimer); ws.removeEventListener('message', onMessage); ws.removeEventListener('close', onClose); ws.removeEventListener('error', onError); error ? reject(error) : resolve(result); };
+    const onClose = () => finish(firstReading ? null : new Error('MQTT closed before reading'), firstReading);
+    const onError = () => finish(firstReading ? null : new Error('MQTT socket error'), firstReading);
     const onMessage = event => {
       try {
         const packet = parsePacket(event.data);
@@ -55,9 +55,19 @@ function waitForReading(ws, deviceId, address, count) {
           ws.send(publishPacket(`${deviceId}/client/request/data`, readRequest(address, 4, count)));
         } else if (packet.type === 3 && packet.topic?.includes('/device/response/client/')) {
           const reading = decodeModbus(packet.payload);
-          if (reading) finish(null, reading);
+          if (reading && !firstReading) {
+            firstReading = reading;
+            ws.send(publishPacket(`${deviceId}/client/request/data`, readRequest(address, 3, Math.max(count, 86))));
+            holdingTimer = setTimeout(() => finish(null, firstReading), 2500);
+          } else if (firstReading) {
+            const holding = decodeHolding(packet.payload);
+            if (holding) {
+              firstReading.named = { ...firstReading.named, ...holding };
+              finish(null, firstReading);
+            }
+          }
         }
-      } catch (error) { finish(error); }
+      } catch (error) { finish(firstReading ? null : error, firstReading); }
     };
     ws.addEventListener('message', onMessage);
     ws.addEventListener('close', onClose);

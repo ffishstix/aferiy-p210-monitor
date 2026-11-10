@@ -54,18 +54,28 @@ export function readRequest(address = 17, code = 4, count = 80) {
   return Uint8Array.from([...body, crc >> 8, crc & 255]);
 }
 const registerNames = { 0:'dcChargePower',2:'acChargePower',3:'pv1ChargePower',4:'pv2ChargePower',5:'pv3ChargePower',6:'pv4ChargePower',7:'acGridPower',12:'acOutputPower',18:'outputStatusMask',19:'batteryVoltage',20:'totalOutputPower',21:'chargingFlag',25:'usbOutputState',26:'dcOutputState',27:'acOutputState',28:'ledState',31:'mainBatteryRaw',32:'slave1BatteryRaw',33:'slave2BatteryRaw',34:'slave3BatteryRaw',35:'slave4BatteryRaw',39:'usbOutputPower',47:'acVersion',48:'acVersionSub',50:'panelVersion',52:'ambientTemp',56:'batterySOCx10',58:'remainChargeTimeMin',59:'pvChargeEnergyTotalH',60:'pvChargeEnergyTotalL',61:'pvChargeEnergyToday',71:'remainChargeTime',72:'remainDischargeTime',77:'smartMeterPower',78:'totalDcDischargePower' };
-export function decodeModbus(input) {
+const holdingNames = { 12:'auxiliaryOutputPower',15:'dcInputType',24:'usbOutputCmd',25:'dcOutputCmd',26:'acOutputCmd',27:'ledCmd',56:'keySound',57:'silentCharging',59:'usbStandbyTime',60:'acStandbyTime',61:'dcStandbyTime',62:'screenRestTime',64:'remoteShutdown',66:'dischargeLimitx10',67:'chargeLimitx10',68:'machineUnusedTime',84:'lowBatteryNotification' };
+function parseRegisters(input, code, names) {
   const bytes = new Uint8Array(input);
-  if (bytes.length < 8 || bytes[1] !== 4) return null;
+  if (bytes.length < 8 || bytes[1] !== code) return null;
   const start = (bytes[2] << 8) | bytes[3], count = (bytes[4] << 8) | bytes[5], size = 6 + 2 * count + 2;
   if (bytes.length !== size || crc16(bytes.slice(0, size - 2)) !== ((bytes[size - 2] << 8) | bytes[size - 1])) return null;
-  const named = {};
-  const registers = [];
+  const named = {}, registers = [];
   for (let i = 0; i < count; i++) {
     const value = (bytes[6 + i * 2] << 8) | bytes[7 + i * 2];
     registers.push(value);
-    if (registerNames[start + i]) named[registerNames[start + i]] = value;
+    if (names[start + i]) named[names[start + i]] = value;
   }
+  return { named, registers };
+}
+export function decodeHolding(input) {
+  const parsed = parseRegisters(input, 3, holdingNames);
+  return parsed ? { ...parsed.named, holdingRegisters:parsed.registers } : null;
+}
+export function decodeModbus(input) {
+  const parsed = parseRegisters(input, 4, registerNames);
+  if (!parsed) return null;
+  const { named, registers } = parsed;
   const soc = named.batterySOCx10 / 10;
   if (!Number.isFinite(soc) || soc < 0 || soc > 100) return null;
   const solar = Math.max(...[1,2,3,4].map(i => named[`pv${i}ChargePower`] || 0));
