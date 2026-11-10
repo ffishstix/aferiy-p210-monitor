@@ -7,6 +7,7 @@ import { onRequestGet as status } from '../functions/api/status.js';
 import { authorised, makeSession } from '../functions/api/control/_auth.js';
 import { controlState } from '../functions/api/control/_state.js';
 import { onRequestGet as controlStatus } from '../functions/api/control/state.js';
+import { onRequestPost as controlCommand } from '../functions/api/control/command.js';
 
 test('status is public and selects only displayed measurements', async () => {
   let sql;
@@ -42,6 +43,26 @@ test('control state decodes output bits and documented limits', () => {
   assert.equal(result.settings.ledMode, 2);
   assert.equal(result.settings.dischargeLimit, 15);
   assert.equal(result.settings.chargeLimit, 90);
+});
+
+test('battery commands require sign-in, same origin, and fresh settings', async () => {
+  const holding = new Array(86).fill(0), input = new Array(80).fill(0);
+  holding[67] = 1000;
+  let calls = 0;
+  const sample = { device_id: 'device', received_at: new Date().toISOString(), raw_json: JSON.stringify({ holdingRegisters: holding, inputRegisters: input }) };
+  const env = { SESSION_SECRET: 'test-secret', INGEST_SECRET: 'private-key', DB: { prepare() { return { first: async () => sample }; } }, CONTROL_WORKER: { async fetch(request) { calls++; assert.equal(request.headers.get('authorization'), 'Bearer private-key'); return Response.json({ confirmed: true }); } } };
+  const url = 'https://example.com/api/control/command';
+  const post = headers => new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ setting: 'acOutput', value: false }) });
+  assert.equal((await controlCommand({ request: post({ origin: 'https://wrong.example' }), env })).status, 403);
+  assert.equal((await controlCommand({ request: post({ origin: 'https://example.com' }), env })).status, 401);
+  assert.equal(calls, 0);
+  const token = await makeSession(env.SESSION_SECRET);
+  const headers = { origin: 'https://example.com', cookie: `battery_control_session=${token}` };
+  assert.equal((await controlCommand({ request: post(headers), env })).status, 200);
+  assert.equal(calls, 1);
+  sample.received_at = new Date(Date.now() - 180000).toISOString();
+  assert.equal((await controlCommand({ request: post(headers), env })).status, 409);
+  assert.equal(calls, 1);
 });
 
 test('old readings are stale and outage readings are discharging', () => {

@@ -10,5 +10,9 @@
       "database_id": "64fb127d-85f5-4484-8c61-06230bc8b01f",
       "preview_database_id": "DB"
     }
-  ]
+  ],
+  "services": [{
+    "binding": "CONTROL_WORKER",
+    "service": "aferiy-p210-cloud-collector"
+  }]
 }

@@ -53,6 +53,15 @@ export function readRequest(address = 17, code = 4, count = 80) {
   const crc = crc16(body);
   return Uint8Array.from([...body, crc >> 8, crc & 255]);
 }
+export function writeRequest(address, register, value) {
+  const body = [address, 6, register >> 8, register & 255, value >> 8, value & 255];
+  const crc = crc16(body);
+  return Uint8Array.from([...body, crc >> 8, crc & 255]);
+}
+export function isWriteAck(payload, request) {
+  const bytes = new Uint8Array(payload);
+  return bytes.length === 8 && request.length === 8 && bytes.every((value, index) => value === request[index]);
+}
 const registerNames = { 0:'dcChargePower',2:'acChargePower',3:'pv1ChargePower',4:'pv2ChargePower',5:'pv3ChargePower',6:'pv4ChargePower',7:'acGridPower',12:'acOutputPower',18:'outputStatusMask',19:'batteryVoltage',20:'totalOutputPower',21:'chargingFlag',25:'usbOutputState',26:'dcOutputState',27:'acOutputState',28:'ledState',31:'mainBatteryRaw',32:'slave1BatteryRaw',33:'slave2BatteryRaw',34:'slave3BatteryRaw',35:'slave4BatteryRaw',39:'usbOutputPower',47:'acVersion',48:'acVersionSub',50:'panelVersion',52:'ambientTemp',56:'batterySOCx10',58:'remainChargeTimeMin',59:'pvChargeEnergyTotalH',60:'pvChargeEnergyTotalL',61:'pvChargeEnergyToday',71:'remainChargeTime',72:'remainDischargeTime',77:'smartMeterPower',78:'totalDcDischargePower' };
 const holdingNames = { 12:'auxiliaryOutputPower',15:'dcInputType',24:'usbOutputCmd',25:'dcOutputCmd',26:'acOutputCmd',27:'ledCmd',56:'keySound',57:'silentCharging',59:'usbStandbyTime',60:'acStandbyTime',61:'dcStandbyTime',62:'screenRestTime',64:'remoteShutdown',66:'dischargeLimitx10',67:'chargeLimitx10',68:'machineUnusedTime',84:'lowBatteryNotification' };
 function parseRegisters(input, code, names) {

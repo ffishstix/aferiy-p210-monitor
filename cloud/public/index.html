@@ -7,6 +7,7 @@
   <title>Battery watch · AFERIY P210</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+  <script src="/controls.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -41,9 +42,15 @@
       </section>
 
       <section class="footer-grid"><article><div class="eyebrow">DEVICE HEALTH</div><h3 id="health-title">No data yet</h3><p id="health-detail">Connection information will appear after the first reading.</p></article><article><div class="eyebrow">LOW BATTERY</div><h3>Save work below 15%</h3><p>The Windows tray worker will show a prominent reminder when fresh readings show the battery is discharging below 15%.</p></article></section>
+      <section class="controls-panel" aria-labelledby="controls-title">
+        <div class="controls-heading"><div><div class="eyebrow">PROTECTED CONTROLS</div><h2 id="controls-title">Battery settings</h2><p>Sign in to change outputs and settings. Status and history above remain public.</p></div><button id="controls-logout" class="ghost" type="button" hidden>Sign out</button></div>
+        <form id="controls-login" class="controls-login"><label for="controls-password">Control password</label><div class="login-row"><input id="controls-password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></div></form>
+        <div id="controls-session" hidden><div class="controls-toolbar"><span id="controls-updated">—</span><button id="controls-refresh" class="ghost" type="button">Refresh settings</button></div><div id="controls-fields" class="controls-fields"></div></div>
+        <p id="controls-message" class="controls-message" role="status" aria-live="polite"></p>
+      </section>
     </div>
   </main>
-  <footer>Battery watch <span>•</span> Read-only monitoring <span>•</span> Times shown in your local time zone</footer>
+  <footer>Battery watch <span>•</span> Public monitoring, protected controls <span>•</span> Times shown in your local time zone</footer>
 </body>
 </html>
 

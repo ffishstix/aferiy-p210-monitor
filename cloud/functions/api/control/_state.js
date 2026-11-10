@@ -16,10 +16,12 @@ export function controlState(sample) {
   const complete = holding?.length >= 85 && input?.length >= 79;
   const plausible = complete && [24, 25, 26].every(index => [0, 1].includes(word(holding, index)))
     && [0, 1, 2, 3].includes(word(holding, 27))
-    && word(holding, 66) <= 500 && word(holding, 67) >= 600 && word(holding, 67) <= 1000;
+    && [25, 26, 27].every(index => [0, 1].includes(word(input, index)))
+    && [0, 1, 2, 3].includes(word(input, 28))
+    && word(holding, 66) != null && word(holding, 66) <= 500
+    && word(holding, 67) != null && word(holding, 67) >= 600 && word(holding, 67) <= 1000;
   const available = Boolean(fresh && complete && plausible);
   const reason = !fresh ? 'The last device reading is stale' : !complete ? 'Settings registers are unavailable' : !plausible ? 'Settings values do not match the supported device profile' : null;
-  const lowBattery = word(holding, 84);
   return {
     available,
     reason,
@@ -35,8 +37,7 @@ export function controlState(sample) {
       screenRestTime: word(holding, 62),
       dischargeLimit: word(holding, 66) == null ? null : word(holding, 66) / 10,
       chargeLimit: word(holding, 67) == null ? null : word(holding, 67) / 10,
-      sleepTime: word(holding, 68), lowBatteryNotify: lowBattery == null ? null : (lowBattery >> 8) === 1,
-      lowBatteryThreshold: low(lowBattery),
+      sleepTime: word(holding, 68),
     } : null,
   };
 }
