@@ -55,7 +55,7 @@ Dashboard API routes require a signed, HttpOnly, SameSite=Strict cookie obtained
 
 From this directory, run `npm install`, then `npm test`. For local D1, run `npx wrangler d1 execute aferiy-p210-monitor --local --file schema.sql`, create a Git-ignored `.dev.vars` with local values for `DASHBOARD_PASSWORD`, `SESSION_SECRET`, and `INGEST_SECRET`, then run `npm run dev`.
 
-To deploy changes, run `npx wrangler pages deploy public --project-name aferiy-p210-monitor --branch main` with a Cloudflare API token in the process environment. The production D1 database is `aferiy-p210-monitor` (ID in `wrangler.jsonc`). Apply schema changes remotely before deployment. Keep production secrets in Cloudflare Pages settings, never in `wrangler.jsonc`.
+Pushing changes under `cloud/` to GitHub `main` runs the checks and deploys through [the GitHub Actions workflow](../.github/workflows/deploy-pages.yml). The production D1 database is `aferiy-p210-monitor` (ID in `wrangler.jsonc`); the workflow applies its schema before deployment. Keep production secrets in Cloudflare Pages settings, never in `wrangler.jsonc`. A manual deployment remains possible with `npx wrangler pages deploy public --project-name aferiy-p210-monitor --branch main` when the Cloudflare API token is present in the process environment.
 
 ## Remaining work
 
