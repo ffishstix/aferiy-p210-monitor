@@ -26,6 +26,7 @@ test('Modbus response validates checksum and maps battery values', () => {
   const parsed = decodeModbus(bytes);
   assert.equal(parsed.charge_percent, 14.5);
   assert.equal(parsed.output_w, 180);
+  assert.equal(parsed.named.inputRegisters.length, 80);
   bytes[8] ^= 1;
   assert.equal(decodeModbus(bytes), null);
 });

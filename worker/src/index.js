@@ -71,7 +71,7 @@ async function readCloudDevice({device,userId,mqtt}) {
   const clientId = `client_${userId}_${hash}_${timestamp}`;
   const host = mqtt.mqtt_host || 'mqtt.sydpower.com';
   if (!/^[a-z0-9.-]+$/i.test(host)) throw new Error('Invalid MQTT host');
-  const ws = new WebSocket(`ws://${host}:8083/mqtt`);
+  const ws = new WebSocket(`ws://${host}:8083/mqtt`, 'mqtt');
   ws.binaryType = 'arraybuffer';
   try {
     const reading = waitForReading(ws, id, Number(device.modbus_address) || 17, Math.max(79, Math.min(Number(device.modbus_count) || 80, 125)));

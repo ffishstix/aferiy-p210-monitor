@@ -53,14 +53,19 @@ export function readRequest(address = 17, code = 4, count = 80) {
   const crc = crc16(body);
   return Uint8Array.from([...body, crc >> 8, crc & 255]);
 }
-const registerNames = { 0:'dcChargePower',2:'acChargePower',3:'pv1ChargePower',4:'pv2ChargePower',5:'pv3ChargePower',6:'pv4ChargePower',7:'acGridPower',12:'acOutputPower',19:'batteryVoltage',20:'totalOutputPower',21:'chargingFlag',39:'usbOutputPower',52:'ambientTemp',56:'batterySOCx10',58:'remainChargeTimeMin',71:'remainChargeTime',72:'remainDischargeTime',78:'totalDcDischargePower' };
+const registerNames = { 0:'dcChargePower',2:'acChargePower',3:'pv1ChargePower',4:'pv2ChargePower',5:'pv3ChargePower',6:'pv4ChargePower',7:'acGridPower',12:'acOutputPower',18:'outputStatusMask',19:'batteryVoltage',20:'totalOutputPower',21:'chargingFlag',25:'usbOutputState',26:'dcOutputState',27:'acOutputState',28:'ledState',31:'mainBatteryRaw',32:'slave1BatteryRaw',33:'slave2BatteryRaw',34:'slave3BatteryRaw',35:'slave4BatteryRaw',39:'usbOutputPower',47:'acVersion',48:'acVersionSub',50:'panelVersion',52:'ambientTemp',56:'batterySOCx10',58:'remainChargeTimeMin',59:'pvChargeEnergyTotalH',60:'pvChargeEnergyTotalL',61:'pvChargeEnergyToday',71:'remainChargeTime',72:'remainDischargeTime',77:'smartMeterPower',78:'totalDcDischargePower' };
 export function decodeModbus(input) {
   const bytes = new Uint8Array(input);
   if (bytes.length < 8 || bytes[1] !== 4) return null;
   const start = (bytes[2] << 8) | bytes[3], count = (bytes[4] << 8) | bytes[5], size = 6 + 2 * count + 2;
   if (bytes.length !== size || crc16(bytes.slice(0, size - 2)) !== ((bytes[size - 2] << 8) | bytes[size - 1])) return null;
   const named = {};
-  for (let i = 0; i < count; i++) if (registerNames[start + i]) named[registerNames[start + i]] = (bytes[6 + i * 2] << 8) | bytes[7 + i * 2];
+  const registers = [];
+  for (let i = 0; i < count; i++) {
+    const value = (bytes[6 + i * 2] << 8) | bytes[7 + i * 2];
+    registers.push(value);
+    if (registerNames[start + i]) named[registerNames[start + i]] = value;
+  }
   const soc = named.batterySOCx10 / 10;
   if (!Number.isFinite(soc) || soc < 0 || soc > 100) return null;
   const solar = Math.max(...[1,2,3,4].map(i => named[`pv${i}ChargePower`] || 0));
@@ -70,5 +75,5 @@ export function decodeModbus(input) {
   const discharging = output > 5 && ac + dc < output;
   // Conservative rough P210 runtime at the present load; verify against the real unit.
   const remaining = discharging ? Math.round((2048 * soc / 100) / (Math.max(output - ac - dc, 1) * 1.5 + 22) * 60) : null;
-  return { named, charge_percent:soc, input_w:ac + dc, output_w:output, ac_input_w:ac, dc_input_w:dc, remaining_minutes:remaining, grid_present:ac > 5 ? 1 : 0, discharging:discharging ? 1 : 0, fault:null };
+  return { named:{...named, batteryVoltageV:(named.batteryVoltage || 0)/10, ambientTempC:(named.ambientTemp || 0)/10, inputRegisters:registers}, charge_percent:soc, input_w:ac + dc, output_w:output, ac_input_w:ac, dc_input_w:dc, remaining_minutes:remaining, grid_present:ac > 5 ? 1 : 0, discharging:discharging ? 1 : 0, fault:null };
 }
