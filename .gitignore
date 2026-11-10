@@ -15,4 +15,6 @@ node_modules/
 __pycache__/
 *.pyc
 dist/
+desktop/bin/
+desktop/obj/
 

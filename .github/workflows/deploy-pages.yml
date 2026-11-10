@@ -8,12 +8,14 @@ on:
       - 'cloud/**'
       - 'collector/**'
       - 'worker/**'
+      - 'desktop/**'
   pull_request:
     paths:
       - '.github/workflows/deploy-pages.yml'
       - 'cloud/**'
       - 'collector/**'
       - 'worker/**'
+      - 'desktop/**'
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -50,9 +52,27 @@ jobs:
           npm ci
           npm test
 
+  desktop:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build desktop application
+        run: dotnet build desktop/BatteryWatch.csproj -c Release
+      - name: Test desktop application
+        shell: pwsh
+        run: |
+          dotnet publish desktop/BatteryWatch.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o desktop/smoke
+          & desktop/smoke/BatteryWatch.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop smoke test failed' }
+
   deploy:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: read
