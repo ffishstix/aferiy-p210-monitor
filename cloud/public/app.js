@@ -31,15 +31,15 @@ async function get(url) {
 function renderStatus({ sample: s, status }) {
   const titles = { no_data: 'Waiting for battery data', stale: 'Connection needs attention', fault: 'Battery fault reported', discharging: 'Running on battery', charging: 'Battery charging', idle: 'Battery standing by' };
   $('state-title').textContent = titles[status] || 'Battery status';
-  $('state-detail').textContent = status === 'no_data' ? 'The site is ready. A local receiver will need to send readings before live monitoring begins.' : status === 'stale' ? 'The last reading is old. Charge and time remaining may have changed.' : status === 'discharging' && s.charge_percent != null && s.charge_percent < 15 ? 'Low charge. Save your work and shut down the PC soon.' : status === 'fault' ? 'Check the battery and its app for details.' : 'Latest readings from your P210.';
+  $('state-detail').textContent = status === 'no_data' ? 'The site is ready. Cloud collection is waiting for the BrightEMS connection.' : status === 'stale' ? 'The last reading is old. Charge and time remaining may have changed.' : status === 'discharging' && s.charge_percent != null && s.charge_percent < 15 ? 'Low charge. Save your work and shut down the PC soon.' : status === 'fault' ? 'Check the battery and its app for details.' : 'Latest readings from your P210.';
   $('last-update').textContent = s ? `UPDATED ${when(s.received_at).toUpperCase()}` : 'NO READING YET';
-  $('connection').textContent = status === 'stale' ? 'Data is stale' : status === 'no_data' ? 'Awaiting receiver' : 'Live data';
+  $('connection').textContent = status === 'stale' ? 'Data is stale' : status === 'no_data' ? 'Awaiting cloud connection' : 'Live data';
   $('connection').className = `connection ${status === 'stale' || status === 'fault' ? 'warning' : status === 'no_data' ? '' : 'live'}`;
   $('charge-big').textContent = s?.charge_percent == null ? '—' : `${Math.round(s.charge_percent)}%`;
   $('battery-fill').style.height = `${s?.charge_percent ?? 0}%`;
   $('input').textContent = value(s?.input_w); $('output').textContent = value(s?.output_w);
   $('remaining').textContent = status === 'discharging' ? clock(s?.remaining_minutes) : '—';
-  $('remaining-detail').textContent = status === 'stale' ? 'Last reading is old' : status === 'discharging' ? 'Battery estimate while discharging' : 'Shown while discharging';
+  $('remaining-detail').textContent = status === 'stale' ? 'Last reading is old' : status === 'discharging' ? 'Rough estimate at the current load' : 'Shown while discharging';
   $('grid').textContent = s?.grid_present == null ? '—' : s.grid_present ? 'Present' : 'Absent';
   $('input-detail').textContent = s?.ac_input_w != null || s?.dc_input_w != null ? `AC ${value(s.ac_input_w)} W · DC ${value(s.dc_input_w)} W` : 'All input sources';
   $('health-title').textContent = status === 'no_data' ? 'No data yet' : status === 'stale' ? 'Reading is stale' : status === 'fault' ? 'Fault reported' : 'Receiving readings';

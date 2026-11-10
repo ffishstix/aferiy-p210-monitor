@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aferiy-p210-cloud-collector",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-10",
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "aferiy-p210-monitor",
+    "database_id": "64fb127d-85f5-4484-8c61-06230bc8b01f"
+  }]
+}

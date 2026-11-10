@@ -9,6 +9,10 @@ credentials/
 *.sqlite
 *.sqlite-*
 .wrangler/
+.wrangler-dry-run/
 node_modules/
+.venv/
+__pycache__/
+*.pyc
 dist/
 

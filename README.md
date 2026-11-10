@@ -1,10 +1,7 @@
-# AFERIY P210 Battery Watch
+# AFERIY P210 cloud monitor
 
-A private Cloudflare Pages dashboard for an AFERIY P210 power station, with a D1 history database and protected upload API. The hosted dashboard is at [aferiy-p210-monitor.pages.dev](https://aferiy-p210-monitor.pages.dev).
+Private dashboard: [aferiy-p210-monitor.pages.dev](https://aferiy-p210-monitor.pages.dev). Source: [GitHub](https://github.com/ffishstix/aferiy-p210-monitor).
 
-The cloud foundation is deployed, but **battery readings are not connected yet**. A local MQTT receiver near the P210 must decode its readings and send them to the upload endpoint. The Windows tray monitor and alerts are also still planned.
+The Cloudflare Pages site, D1 history database, and Windows tray program are built. A separate scheduled Cloudflare Worker is implemented to read the P210 via BrightEMS's existing cloud connection. **Real P210 readings have not yet been verified.** The Worker needs the BrightEMS account username and password as Cloudflare secrets before it can run. The Local MQTT token is a different credential and cannot be used for this cloud login.
 
-- [Project diagram and staged plan](PROJECT_PLAN.md)
-- [Cloud application and setup](cloud/README.md)
-
-No API tokens or passwords belong in this repository. The dashboard password and upload secret are kept on the owner's PC and in encrypted Cloudflare Pages secrets.
+See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the diagram and remaining steps. No account credentials or dashboard passwords are committed to this repository.
