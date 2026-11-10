@@ -16,8 +16,6 @@ export function controlState(sample) {
   const complete = holding?.length >= 85 && input?.length >= 79;
   const plausible = complete && [24, 25, 26].every(index => [0, 1].includes(word(holding, index)))
     && [0, 1, 2, 3].includes(word(holding, 27))
-    && [25, 26, 27].every(index => [0, 1].includes(word(input, index)))
-    && [0, 1, 2, 3].includes(word(input, 28))
     && word(holding, 66) != null && word(holding, 66) <= 500
     && word(holding, 67) != null && word(holding, 67) >= 600 && word(holding, 67) <= 1000;
   const available = Boolean(fresh && complete && plausible);
@@ -28,8 +26,8 @@ export function controlState(sample) {
     receivedAt: sample.received_at,
     diagnostic: { holdingCount: holding?.length ?? 0, inputCount: input?.length ?? 0, holdingRead: raw?.holdingRead ?? null },
     settings: complete ? {
-      usbOutput: state(input, 25), dcOutput: state(input, 26), acOutput: state(input, 27),
-      ledMode: word(input, 28) <= 3 ? word(input, 28) : null,
+      usbOutput: state(holding, 24), dcOutput: state(holding, 25), acOutput: state(holding, 26),
+      ledMode: word(holding, 27),
       acChargingRate: word(holding, 13), dcInputType: low(word(holding, 15)),
       dcInputMaxCurrent: low(word(holding, 17)), dcInputCurrent: low(word(holding, 20)),
       buzzer: state(holding, 56), silentCharging: state(holding, 57),
