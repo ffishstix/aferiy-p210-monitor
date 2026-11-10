@@ -49,7 +49,8 @@ export function statusOf(sample) {
   if (Date.now() - Date.parse(sample.received_at) > 120000) return 'stale';
   if (sample.fault === 1) return 'fault';
   if (sample.discharging === 1 && sample.grid_present !== 1) return 'discharging';
-  if (sample.input_w > 0 && sample.discharging !== 1) return 'charging';
+  if (sample.grid_present === 1 && sample.output_w > 0 && Math.abs(sample.input_w - sample.output_w) <= 25) return 'passthrough';
+  if (sample.input_w > sample.output_w + 25) return 'charging';
   return 'idle';
 }
 

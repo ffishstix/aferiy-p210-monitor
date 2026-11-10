@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import threading
 import traceback
 from urllib.error import HTTPError, URLError
@@ -21,6 +22,15 @@ from monitor import DEFAULT_DATA_DIR
 
 DASHBOARD_URL = "https://aferiy-p210-monitor.pages.dev"
 PASSWORD_FILE = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AferiyMonitor" / "dashboard-password.txt"
+
+
+def open_compact():
+    url = DASHBOARD_URL + "/?compact=1"
+    edge = Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+    if edge.exists():
+        subprocess.Popen([str(edge), "--app=" + url, "--window-size=440,700"])
+    else:
+        webbrowser.open(url)
 
 
 class CloudDashboard:
@@ -77,7 +87,9 @@ def classify(sample: dict | None, now: datetime | None = None) -> str:
         return "fault"
     if sample.get("discharging") == 1 and sample.get("grid_present") != 1:
         return "low" if sample.get("charge_percent") is not None and sample["charge_percent"] < 15 else "discharging"
-    if (sample.get("input_w") or 0) > 0:
+    if sample.get("grid_present") == 1 and (sample.get("output_w") or 0) > 0 and abs((sample.get("input_w") or 0) - (sample.get("output_w") or 0)) <= 25:
+        return "passthrough"
+    if (sample.get("input_w") or 0) > (sample.get("output_w") or 0) + 25:
         return "charging"
     return "idle"
 
@@ -92,7 +104,7 @@ def eta(sample: dict | None) -> str:
 
 def image_for(state: str, percent: float | None) -> Image.Image:
     colours = {
-        "charging": "#70d99f", "idle": "#a6c3b9", "discharging": "#f1c765",
+        "charging": "#70d99f", "passthrough": "#70c7d9", "idle": "#a6c3b9", "discharging": "#f1c765",
         "low": "#f1756f", "stale": "#87949b", "offline": "#69747b", "fault": "#e97685",
     }
     colour = colours.get(state, "#87949b")
@@ -121,6 +133,7 @@ class TrayMonitor:
         self.icon = pystray.Icon("aferiy-p210", image_for("offline", None), "P210: waiting for data", menu=pystray.Menu(
             pystray.MenuItem(lambda _: self.status_text, None, enabled=False),
             pystray.MenuItem("Open dashboard", lambda _icon, _item: webbrowser.open(DASHBOARD_URL)),
+            pystray.MenuItem("Open compact widget", lambda _icon, _item: open_compact()),
             pystray.MenuItem("Exit", self.quit),
         ))
 
@@ -150,7 +163,7 @@ class TrayMonitor:
             if level > self.alert_level:
                 self.notify("Low P210 battery — save your work", f"{pct_text} left. Save your work and shut down this PC soon. {eta(sample)}.")
                 self.alert_level = level
-        elif state in ("charging", "idle") and percent is not None and percent >= 17:
+        elif state in ("charging", "passthrough", "idle") and percent is not None and percent >= 17:
             self.alert_level = 0
         if state in ("stale", "offline") and self.previous_state in ("discharging", "low"):
             self.notify("P210 status unavailable", "The last battery reading is old. Check the power station before relying on the ETA.")

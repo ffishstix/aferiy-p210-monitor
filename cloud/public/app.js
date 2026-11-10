@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let currentHours = 24;
 let timer;
+if (new URLSearchParams(location.search).get('compact') === '1') document.body.classList.add('compact');
 
 const value = (v, digits = 0) => v == null ? '—' : Number(v).toFixed(digits);
 const when = iso => iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -29,7 +30,7 @@ async function get(url) {
 }
 
 function renderStatus({ sample: s, status }) {
-  const titles = { no_data: 'Waiting for battery data', stale: 'Connection needs attention', fault: 'Battery fault reported', discharging: 'Running on battery', charging: 'Battery charging', idle: 'Battery standing by' };
+  const titles = { no_data: 'Waiting for battery data', stale: 'Connection needs attention', fault: 'Battery fault reported', discharging: 'Running on battery', charging: 'Battery charging', passthrough: 'Power passing through', idle: 'Battery standing by' };
   $('state-title').textContent = titles[status] || 'Battery status';
   $('state-detail').textContent = status === 'no_data' ? 'The site is ready. Cloud collection is waiting for the BrightEMS connection.' : status === 'stale' ? 'The last reading is old. Charge and time remaining may have changed.' : status === 'discharging' && s.charge_percent != null && s.charge_percent < 15 ? 'Low charge. Save your work and shut down the PC soon.' : status === 'fault' ? 'Check the battery and its app for details.' : 'Latest readings from your P210.';
   $('last-update').textContent = s ? `UPDATED ${when(s.received_at).toUpperCase()}` : 'NO READING YET';
@@ -74,8 +75,32 @@ function renderChart(samples, hours) {
   $('chart-area').setAttribute('d', segments.map(seg => seg.length > 1 ? `M${seg[0][0].toFixed(1)} 240 ` + seg.map(([x,y]) => `L${x.toFixed(1)} ${y.toFixed(1)}`).join(' ') + ` L${seg.at(-1)[0].toFixed(1)} 240 Z` : '').join(' '));
 }
 
+function renderPowerChart(samples, hours) {
+  const points = samples.filter(s => Number.isFinite(Date.parse(s.recorded_at)) && (s.input_w != null || s.output_w != null));
+  $('power-empty').hidden = points.length > 0;
+  $('power-range-start').textContent = when(new Date(Date.now() - hours * 3600000).toISOString());
+  $('power-range-end').textContent = when(new Date().toISOString());
+  const maximum = Math.max(100, ...points.flatMap(s => [Number(s.input_w) || 0, Number(s.output_w) || 0]));
+  const scale = Math.ceil(maximum / 100) * 100;
+  $('power-max').textContent = `${scale} W`;
+  $('power-mid').textContent = `${scale / 2} W`;
+  const start = Date.now() - hours * 3600000, width = hours * 3600000;
+  for (const [field, element] of [['input_w','power-input-line'], ['output_w','power-output-line']]) {
+    let path = '', previousTime = null;
+    for (const point of points) {
+      if (point[field] == null) { previousTime = null; continue; }
+      const time = Date.parse(point.recorded_at);
+      const x = Math.max(0, Math.min(1000, (time - start) / width * 1000));
+      const y = 240 - Math.max(0, Math.min(scale, Number(point[field]))) / scale * 240;
+      path += `${previousTime === null || time - previousTime > Math.max(120000, width / 50) ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+      previousTime = time;
+    }
+    $(element).setAttribute('d', path);
+  }
+}
+
 async function refresh() {
-  try { const [status, history] = await Promise.all([get('/api/status'), get(`/api/history?hours=${currentHours}`)]); renderStatus(status); renderChart(history.samples, currentHours); }
+  try { const [status, history] = await Promise.all([get('/api/status'), get(`/api/history?hours=${currentHours}`)]); renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours); }
   catch (error) { if (error.message !== 'Sign in required') { $('connection').textContent = 'Website unavailable'; $('connection').className = 'connection warning'; } }
 }
 
@@ -85,6 +110,14 @@ $('login-form').addEventListener('submit', async event => {
   if (response.ok) { $('password').value = ''; showDashboard(); } else $('login-error').textContent = (await response.json()).error || 'Could not sign in';
 });
 $('signout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); showLogin(); });
+$('compact-toggle').addEventListener('click', () => {
+  document.body.classList.toggle('compact');
+  const url = new URL(location.href);
+  if (document.body.classList.contains('compact')) url.searchParams.set('compact', '1'); else url.searchParams.delete('compact');
+  history.replaceState(null, '', url);
+  $('compact-toggle').textContent = document.body.classList.contains('compact') ? 'Full view' : 'Compact view';
+});
+if (document.body.classList.contains('compact')) $('compact-toggle').textContent = 'Full view';
 document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => { currentHours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button)); refresh(); }));
 get('/api/status').then(() => showDashboard()).catch(() => showLogin());
 

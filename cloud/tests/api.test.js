@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeSession, authorised, statusOf } from '../functions/api/_lib.js';
 import { onRequestPost as ingest } from '../functions/api/ingest.js';
+import { onRequestGet as history } from '../functions/api/history.js';
 
 test('session authenticates and rejects tampering', async () => {
   const secret = 'test-session-secret';
@@ -15,6 +16,7 @@ test('session authenticates and rejects tampering', async () => {
 test('old readings are stale and outage readings are discharging', () => {
   assert.equal(statusOf({ received_at: new Date(Date.now() - 180000).toISOString(), discharging: 1, grid_present: 0 }), 'stale');
   assert.equal(statusOf({ received_at: new Date().toISOString(), discharging: 1, grid_present: 0 }), 'discharging');
+  assert.equal(statusOf({ received_at: new Date().toISOString(), grid_present: 1, input_w: 161, output_w: 160 }), 'passthrough');
 });
 
 test('ingest requires a secret and validates values before writing', async () => {
@@ -26,4 +28,18 @@ test('ingest requires a secret and validates values before writing', async () =>
   const invalid = await ingest({ request: new Request('https://example.com/api/ingest', { method: 'POST', headers: { authorization: 'Bearer private-test-key' }, body: JSON.stringify(body) }), env });
   assert.equal(invalid.status, 400);
   assert.equal(wrote, false);
+});
+
+test('month history groups samples into bounded time buckets', async () => {
+  const secret = 'history-secret';
+  const session = await makeSession(secret);
+  let sql, bindings;
+  const env = { SESSION_SECRET: secret, DB: { prepare(query) { sql = query; return { bind(...args) { bindings = args; return { all: async () => ({ results: [] }) }; } }; } } };
+  const request = new Request('https://example.com/api/history?hours=720', { headers: { cookie: `battery_session=${session}` } });
+  const response = await history({ request, env });
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(sql.includes('GROUP BY'));
+  assert.equal(bindings[1], 1740);
+  assert.equal(result.bucketSeconds, 1740);
 });
