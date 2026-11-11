@@ -24,7 +24,7 @@ internal static class Program
             if (BatteryState.Classify(new Sample { InputW = 451, OutputW = 151, RecordedAt = DateTimeOffset.UtcNow }) != "charging") Environment.Exit(1);
             if (BatteryState.Classify(new Sample { InputW = 161, OutputW = 160, GridPresent = 1, RecordedAt = DateTimeOffset.UtcNow }) != "passthrough") Environment.Exit(1);
             ApplicationConfiguration.Initialize();
-            using var view = new DockForm(() => { }, () => { }, _ => { }, false);
+            using var view = new DockForm(() => { }, () => { }, () => { }, () => { }, _ => { }, false);
             view.UpdateReading(new Sample { ChargePercent = 29, InputW = 450, OutputW = 151, RecordedAt = DateTimeOffset.UtcNow }, "charging", false);
             _ = view.Handle;
             var previewPath = Environment.GetEnvironmentVariable("BATTERY_WATCH_PREVIEW");
@@ -38,6 +38,22 @@ internal static class Program
                 view.DrawToBitmap(preview, new Rectangle(0, 0, view.Width, view.Height));
                 preview.Save(previewPath);
                 view.Hide();
+            }
+            using var previewClient = new HttpClient { BaseAddress = new Uri(DashboardUrl) };
+            using var controlView = new ControlsForm(previewClient);
+            controlView.PreviewSettings();
+            _ = controlView.Handle;
+            var controlPreviewPath = Environment.GetEnvironmentVariable("BATTERY_WATCH_CONTROLS_PREVIEW");
+            if (!string.IsNullOrWhiteSpace(controlPreviewPath))
+            {
+                controlView.StartPosition = FormStartPosition.Manual;
+                controlView.Location = new Point(-2000, -2000);
+                controlView.Show();
+                Application.DoEvents();
+                using var preview = new Bitmap(controlView.Width, controlView.Height);
+                controlView.DrawToBitmap(preview, new Rectangle(0, 0, controlView.Width, controlView.Height));
+                preview.Save(controlPreviewPath);
+                controlView.Hide();
             }
             Environment.Exit(0);
         }
@@ -133,6 +149,11 @@ internal static class SecretStore
         byte[] bytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(password), null, DataProtectionScope.CurrentUser);
         File.WriteAllBytes(FilePath, bytes);
     }
+
+    public static void Delete()
+    {
+        if (File.Exists(FilePath)) File.Delete(FilePath);
+    }
 }
 
 internal sealed class BatteryApp : ApplicationContext
@@ -143,6 +164,7 @@ internal sealed class BatteryApp : ApplicationContext
     private readonly HttpClient client;
     private readonly NotifyIcon tray;
     private readonly DockForm dock;
+    private readonly ControlsForm controls;
     private readonly System.Windows.Forms.Timer timer;
     private string? password;
     private string previousState = "offline";
@@ -155,7 +177,8 @@ internal sealed class BatteryApp : ApplicationContext
     {
         client = new HttpClient(new HttpClientHandler { CookieContainer = cookies }) { BaseAddress = new Uri(Program.DashboardUrl), Timeout = TimeSpan.FromSeconds(12) };
         password = SecretStore.Read();
-        dock = new DockForm(() => _ = RefreshAsync(), () => OpenWebsite(Program.DashboardUrl), SetStartup, StartupEnabled());
+        controls = new ControlsForm(client);
+        dock = new DockForm(() => _ = RefreshAsync(), () => OpenWebsite(Program.DashboardUrl), ShowControls, Uninstall, SetStartup, StartupEnabled());
         _ = dock.Handle;
         dock.FormClosed += (_, _) => ExitThread();
         tray = new NotifyIcon
@@ -166,8 +189,10 @@ internal sealed class BatteryApp : ApplicationContext
             ContextMenuStrip = new ContextMenuStrip()
         };
         tray.ContextMenuStrip.Items.Add("Show battery details", null, (_, _) => ToggleDock());
+        tray.ContextMenuStrip.Items.Add("Battery controls", null, (_, _) => ShowControls());
         tray.ContextMenuStrip.Items.Add("Open website", null, (_, _) => OpenWebsite(Program.DashboardUrl));
-        tray.ContextMenuStrip.Items.Add("Change password", null, (_, _) => ChangePassword());
+        tray.ContextMenuStrip.Items.Add("Change control password", null, (_, _) => ChangePassword());
+        tray.ContextMenuStrip.Items.Add("Uninstall", null, (_, _) => Uninstall());
         tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => ExitThread());
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ToggleDock(); };
         tray.BalloonTipClicked += (_, _) => ShowDock();
@@ -180,7 +205,46 @@ internal sealed class BatteryApp : ApplicationContext
     private static void OpenWebsite(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
     private void ToggleDock() { if (dock.Visible) dock.Hide(); else ShowDock(); }
-    private void ShowDock() { dock.PositionBottomRight(); dock.Show(); dock.Activate(); }
+    private void ShowDock() { controls.Hide(); dock.PositionBottomRight(); dock.Show(); dock.Activate(); }
+
+    private void ShowControls()
+    {
+        dock.Hide();
+        controls.PositionBottomRight();
+        controls.Show(); controls.Activate();
+        _ = controls.RefreshAsync();
+    }
+
+    private void Uninstall()
+    {
+        if (MessageBox.Show(dock, "Remove Battery Watch from startup, delete its saved password, and remove this downloaded app file? Cloud history and the website will stay available.", "Uninstall Battery Watch", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable) || !Path.GetFileName(executable).StartsWith("BatteryWatch", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(dock, "The app file could not be identified. Uninstall was cancelled.", "Battery Watch", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        try
+        {
+            var escaped = executable.Replace("'", "''");
+            var script = $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{escaped}' -Force -ErrorAction SilentlyContinue";
+            var helper = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"))
+            {
+                UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden
+            };
+            helper.ArgumentList.Add("-NoProfile"); helper.ArgumentList.Add("-NonInteractive");
+            helper.ArgumentList.Add("-WindowStyle"); helper.ArgumentList.Add("Hidden");
+            helper.ArgumentList.Add("-EncodedCommand"); helper.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+            using var helperProcess = Process.Start(helper) ?? throw new System.ComponentModel.Win32Exception("Could not start the uninstall helper");
+            SetStartup(false);
+            SecretStore.Delete();
+            ExitThread();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            MessageBox.Show(dock, $"Could not complete uninstall: {error.Message}", "Battery Watch", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
 
     private void ChangePassword()
     {
@@ -303,7 +367,7 @@ internal sealed class BatteryApp : ApplicationContext
     {
         timer.Stop(); timer.Dispose();
         tray.Visible = false; tray.Icon?.Dispose(); tray.Dispose();
-        dock.Dispose(); client.Dispose();
+        controls.Dispose(); dock.Dispose(); client.Dispose();
         base.ExitThreadCore();
     }
 }

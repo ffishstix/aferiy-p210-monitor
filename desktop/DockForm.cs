@@ -16,15 +16,19 @@ internal sealed class DockForm : Form
     private readonly CheckBox startup = new();
     private readonly Action onRefresh;
     private readonly Action onWebsite;
+    private readonly Action onControls;
+    private readonly Action onUninstall;
     private readonly Action<bool> onStartup;
     private bool ready;
 
-    public DockForm(Action onRefresh, Action onWebsite, Action<bool> onStartup, bool startupEnabled)
+    public DockForm(Action onRefresh, Action onWebsite, Action onControls, Action onUninstall, Action<bool> onStartup, bool startupEnabled)
     {
         this.onRefresh = onRefresh;
         this.onWebsite = onWebsite;
+        this.onControls = onControls;
+        this.onUninstall = onUninstall;
         this.onStartup = onStartup;
-        Width = 372; Height = 472;
+        Width = 372; Height = 528;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         TopMost = true;
@@ -51,17 +55,23 @@ internal sealed class DockForm : Form
         eta.Font = new Font("Segoe UI Semibold", 12); eta.Bounds = new Rectangle(24, 324, 315, 28); Controls.Add(eta);
         updated.ForeColor = Color.FromArgb(151, 174, 178); updated.Bounds = new Rectangle(24, 354, 320, 22); Controls.Add(updated);
 
-        var web = Button("Open dashboard ↗", 24, 391, 166, 37, onWebsite);
-        web.BackColor = Color.FromArgb(184, 239, 143); web.ForeColor = Color.FromArgb(19, 46, 34);
-        var settings = Button("Refresh", 203, 391, 93, 37, onRefresh);
-        Controls.Add(web); Controls.Add(settings);
+        var controls = Button("Battery controls  →", 24, 391, 320, 39, onControls);
+        controls.BackColor = Color.FromArgb(184, 239, 143); controls.ForeColor = Color.FromArgb(19, 46, 34);
+        var web = Button("Open dashboard ↗", 24, 441, 178, 35, onWebsite);
+        var refresh = Button("Refresh", 212, 441, 132, 35, onRefresh);
+        Controls.AddRange([controls, web, refresh]);
         startup.Text = "Start with Windows"; startup.Checked = startupEnabled; startup.AutoSize = true;
-        startup.ForeColor = Color.FromArgb(165, 184, 185); startup.Location = new Point(24, 439);
+        startup.ForeColor = Color.FromArgb(165, 184, 185); startup.Location = new Point(24, 493);
         startup.CheckedChanged += (_, _) => { if (ready) onStartup(startup.Checked); };
         Controls.Add(startup);
+        var uninstall = Button("Uninstall", 266, 488, 78, 27, onUninstall);
+        uninstall.ForeColor = Color.FromArgb(246, 167, 162);
+        Controls.Add(uninstall);
         ready = true;
         UpdateReading(null, "offline", true);
-        Deactivate += (_, _) => { if (!ContainsFocus) Hide(); };
+        Resize += (_, _) => RoundedWindow.Apply(this);
+        HandleCreated += (_, _) => RoundedWindow.Apply(this);
+        Deactivate += (_, _) => BeginInvoke(new Action(() => { if (!ContainsFocus) Hide(); }));
         Paint += (_, e) =>
         {
             using var pen = new Pen(Color.FromArgb(64, 93, 95), 1);
