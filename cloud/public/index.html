@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
   <script src="/controls.js" defer></script>
+  <script src="/optics-controls.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -64,6 +65,18 @@
         <form id="controls-login" class="controls-login"><label for="controls-password">Control password</label><div class="login-row"><input id="controls-password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></div></form>
         <div id="controls-session" hidden><div class="controls-toolbar"><span id="controls-updated">—</span><button id="controls-refresh" class="ghost" type="button">Refresh settings</button></div><div id="controls-fields" class="controls-fields"></div></div>
         <p id="controls-message" class="controls-message" role="status" aria-live="polite"></p>
+      </section>
+      <section class="controls-panel farm-controls-panel" aria-labelledby="optics-title">
+        <div class="controls-heading"><div><div class="eyebrow">FARM CONTROLS · OPTICSRE</div><h2 id="optics-title">Main power settings</h2><p>Change the generator, main battery, inverter and solar controllers. OpticsRE may queue a change before the farm equipment applies it; refresh to check the result.</p></div><button id="optics-logout" class="ghost" type="button" hidden>Sign out</button></div>
+        <form id="optics-login" class="controls-login"><label for="optics-password">Farm control password</label><div class="login-row"><input id="optics-password" type="password" autocomplete="current-password" required><button type="submit">Sign in</button></div></form>
+        <div id="optics-content" hidden>
+          <div class="controls-toolbar"><span id="optics-updated">—</span><button id="optics-refresh" class="ghost" type="button">Refresh farm settings</button></div>
+          <div id="optics-quick" class="optics-quick"></div>
+          <div class="optics-tools"><label for="optics-search">Find a setting</label><input id="optics-search" type="search" placeholder="Search name, device or section"><span id="optics-count"></span></div>
+          <nav id="optics-categories" class="optics-categories" aria-label="Farm settings category"></nav>
+          <div id="optics-groups"></div>
+        </div>
+        <p id="optics-status" class="controls-message" role="status" aria-live="polite"></p>
       </section>
     </div>
   </main>

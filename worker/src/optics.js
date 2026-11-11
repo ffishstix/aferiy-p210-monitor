@@ -24,6 +24,98 @@ async function token(env) {
   return cachedToken;
 }
 
+function systemIds(env) {
+  const systemId = Number(env.OPTICS_SYSTEM_ID), siteId = Number(env.OPTICS_SITE_ID), clientId = Number(env.OPTICS_CLIENT_ID);
+  if (![systemId, siteId, clientId].every(Number.isSafeInteger)) throw new Error('OpticsRE system identifiers are not configured');
+  return { systemId, siteId, clientId };
+}
+
+async function opticsRequest(env, path, body) {
+  if (!env.OPTICS_USERNAME || !env.OPTICS_PASSWORD) throw new Error('OpticsRE credentials are not configured');
+  try { return await post(path, body, await token(env)); }
+  catch (error) {
+    if (!String(error.message).includes('HTTP 401')) throw error;
+    cachedToken = undefined;
+    return await post(path, body, await token(env));
+  }
+}
+
+export async function readOpticsControls(env) {
+  const ids = systemIds(env);
+  const [settings, buttons] = await Promise.all([
+    opticsRequest(env, '/legacy/device-settings', ids),
+    opticsRequest(env, '/legacy/easy-buttons', ids),
+  ]);
+  const editable = (settings.devices || []).map(device => ({
+    model: device.modelNumber,
+    port: device.portNumber,
+    online: device.isOnline,
+    tabs: (device.tabs || []).map(tab => ({
+      name: tab.name,
+      subsections: (tab.subsections || []).map(section => ({
+        name: section.name,
+        attributes: (section.attributes || []).filter(attribute => attribute.readOnly === false).map(attribute => ({
+          key: attribute.dataFieldName,
+          label: attribute.localizedAttributeName || attribute.dataFieldName,
+          current: attribute.value?.current,
+          options: attribute.value?.options || null,
+          range: attribute.value?.range || null,
+          unit: attribute.value?.unitOfMeasure || null,
+        })),
+      })).filter(section => section.attributes.length),
+    })).filter(tab => tab.subsections.length),
+  }));
+  const easy = buttons.easyButtons || {};
+  const quick = Object.fromEntries(['generator', 'inverter', 'acPower', 'battery'].map(key => [key, {
+    status: easy[key]?.status,
+    current: easy[key]?.current,
+    options: easy[key]?.options || [],
+    disabled: easy[key]?.isDisabled !== false,
+  }]));
+  return { online: settings.isOnline === true, accessLevel: settings.siteAccessLevel, pending: settings.pendingPropertyInstructionCount || easy.pendingCommandsCount || 0, devices: editable, quick, readAt: new Date().toISOString() };
+}
+
+export async function changeOpticsControl(env, command) {
+  const ids = systemIds(env);
+  if (!command || typeof command !== 'object' || typeof command.expectedCurrent !== 'string') throw new Error('Invalid OpticsRE change');
+  if (command.kind === 'setting') {
+    if (!Number.isSafeInteger(command.port) || typeof command.key !== 'string' || command.key.length > 100 || typeof command.value !== 'string' || command.value.length > 100) throw new Error('Invalid OpticsRE setting');
+    const settings = await opticsRequest(env, '/legacy/device-settings', ids);
+    if (!settings.isOnline || settings.pendingPropertyInstructionCount > 0) throw new Error('Farm system is offline or another change is pending');
+    const device = (settings.devices || []).find(item => item.portNumber === command.port);
+    if (!device?.isOnline) throw new Error('Device is offline');
+    const matches = (device.tabs || []).flatMap(tab => tab.subsections || []).flatMap(section => section.attributes || []).filter(attribute => attribute.dataFieldName === command.key);
+    if (matches.length !== 1 || matches[0].readOnly !== false) throw new Error('Setting is unavailable');
+    const attribute = matches[0];
+    if (String(attribute.value?.current) !== command.expectedCurrent) throw new Error('Setting changed since it was loaded; refresh first');
+    if (attribute.value.options?.length) {
+      if (!attribute.value.options.some(option => option.text === command.value)) throw new Error('Value is not an available choice');
+    } else if (attribute.value.range) {
+      const { min, max, increment } = attribute.value.range;
+      const value = Number(command.value);
+      if (!Number.isFinite(value) || value < min || value > max || (increment > 0 && Math.abs((value - min) / increment - Math.round((value - min) / increment)) > 0.00001)) throw new Error('Value is outside the allowed range');
+    } else throw new Error('Setting has no supported editor');
+    if (command.value === command.expectedCurrent) throw new Error('Setting already has that value');
+    attribute.value.current = command.value;
+    const result = await opticsRequest(env, '/legacy/apply-device-settings', { device, ...ids, macAddress: settings.macAddress, resetFactoryDefaultsOperation: false });
+    return { accepted: true, pending: result.commandResponseModel?.pendingCommandCount ?? null, message: 'OpticsRE accepted the change. Refresh later to verify the device value.' };
+  }
+  if (command.kind === 'quick') {
+    if (!['generator', 'inverter', 'acPower', 'battery'].includes(command.key) || !Number.isInteger(command.value)) throw new Error('Invalid OpticsRE control');
+    const [settings, buttons] = await Promise.all([opticsRequest(env, '/legacy/device-settings', ids), opticsRequest(env, '/legacy/easy-buttons', ids)]);
+    const easy = buttons.easyButtons;
+    if (!settings.isOnline || settings.pendingPropertyInstructionCount > 0 || easy?.pendingCommandsCount > 0) throw new Error('Farm system is offline or another change is pending');
+    const target = easy?.[command.key];
+    if (!target || target.isDisabled !== false || String(target.current) !== command.expectedCurrent) throw new Error('Control changed or is unavailable; refresh first');
+    if (!target.options?.some(option => option.value === command.value && option.isDisabled === false)) throw new Error('Control value is unavailable');
+    if (target.current === command.value) throw new Error('Control already has that value');
+    target.current = command.value;
+    const result = await opticsRequest(env, '/legacy/apply-easy-buttons', { acPower: easy.acPower, battery: easy.battery, generator: easy.generator, inverter: easy.inverter, legacyEasyButtonDevices: easy.connectedDevices, siteId: ids.siteId, macAddress: settings.macAddress });
+    return { accepted: true, pending: result.commandResponseModel?.pendingCommandCount ?? null, message: 'OpticsRE accepted the control request. Refresh later to verify its state.' };
+  }
+  throw new Error('Unknown OpticsRE control');
+}
+
 const watts = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 1000) : null;
 
 export function normalizePowerflow(flow, recordedAt = new Date().toISOString()) {

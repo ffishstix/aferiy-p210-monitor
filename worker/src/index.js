@@ -1,6 +1,6 @@
 import { connectPacket, decodeHolding, decodeModbus, isWriteAck, md5, parsePacket, publishPacket, readRequest, signature, subscribePacket, writeRequest } from './protocol.js';
 import { plausibleSettings, resolveControl } from './controls.js';
-import { collectFarm } from './optics.js';
+import { changeOpticsControl, collectFarm, readOpticsControls } from './optics.js';
 
 // BrightEMS cloud protocol, based on the community Fossibot Home Assistant integration.
 const API_URL = 'https://api.next.bspapp.com/client';
@@ -181,12 +181,14 @@ export default {
   },
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
-    if (!['/check', '/command'].includes(path) || request.method !== 'POST' || !env.INGEST_SECRET || request.headers.get('authorization') !== `Bearer ${env.INGEST_SECRET}`) return new Response('Not found', {status:404});
+    if (!['/check', '/command', '/optics/settings', '/optics/command'].includes(path) || request.method !== 'POST' || !env.INGEST_SECRET || request.headers.get('authorization') !== `Bearer ${env.INGEST_SECRET}`) return new Response('Not found', {status:404});
     try {
       if (path === '/check') return Response.json(await collect(env));
+      if (path === '/optics/settings') return Response.json(await readOpticsControls(env));
       if (!request.headers.get('content-type')?.startsWith('application/json')) return Response.json({error:'Invalid content type'},{status:400});
       const text = await request.text();
       if (text.length > 512) return Response.json({error:'Command too large'},{status:400});
+      if (path === '/optics/command') return Response.json(await changeOpticsControl(env, JSON.parse(text)));
       const result = await commandDevice(env, JSON.parse(text));
       return Response.json(result);
     } catch (error) {
