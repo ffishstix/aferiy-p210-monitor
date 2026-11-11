@@ -36,6 +36,18 @@ function renderStatus({ sample: s, status }) {
   $('health-detail').textContent = s ? `Last received ${when(s.received_at)}.` : 'Connection information will appear after the first reading.';
 }
 
+function renderFarm({ sample: s, status }) {
+  $('farm-connection').textContent = status === 'live' ? 'Live data' : status === 'stale' ? 'Farm reading is old' : 'Waiting for farm readings';
+  $('farm-connection').className = `connection ${status === 'live' ? 'live' : status === 'stale' ? 'warning' : ''}`;
+  $('farm-updated').textContent = s ? `Last reading ${when(s.recorded_at)}${status === 'stale' ? ' · figures may have changed' : ''}` : 'The farm gateway has not sent a reading yet.';
+  $('farm-solar').textContent = s?.solar_w == null ? '—' : `${value(s.solar_w)} W`;
+  $('farm-generator').textContent = s?.generator_running === 0 ? 'Off' : s?.generator_w == null ? s?.generator_running === 1 ? 'Running' : '—' : `${value(s.generator_w)} W`;
+  $('farm-charge').textContent = s?.main_charge_percent == null ? '—' : `${value(s.main_charge_percent)}%`;
+  $('farm-load').textContent = s?.load_w == null ? '—' : `${value(s.load_w)} W`;
+  $('farm-battery-flow').textContent = s?.main_battery_w == null ? 'Power flow unavailable' : `${Math.abs(s.main_battery_w).toFixed(0)} W ${s.main_battery_w > 0 ? 'charging' : s.main_battery_w < 0 ? 'draining' : 'balanced'}`;
+  $('farm-source').textContent = s?.ac_source ? `AC source: ${s.ac_source}` : 'AC source unknown';
+}
+
 function renderChart(samples, hours) {
   const points = samples.filter(s => s.charge_percent != null && Number.isFinite(Date.parse(s.recorded_at)));
   $('chart-empty').hidden = points.length > 0;
@@ -82,12 +94,19 @@ function renderPowerChart(samples, hours) {
 async function refresh(fresh = false) {
   if (refreshing) return;
   refreshing = true;
+  const farmRequest = get(`/api/farm/status?at=${Date.now()}`).catch(() => null);
   try {
     const status = await get(fresh ? '/api/status?fresh=1' : '/api/status');
     const history = await get(`/api/history?hours=${currentHours}`);
     renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours);
   }
   catch { $('connection').textContent = fresh ? 'Fresh reading unavailable' : 'Website unavailable'; $('connection').className = 'connection warning'; }
+  try {
+    const farm = await farmRequest;
+    if (!farm) throw new Error('Farm status unavailable');
+    renderFarm(farm);
+  }
+  catch { $('farm-connection').textContent = 'Farm reading unavailable'; $('farm-connection').className = 'connection warning'; }
   finally { refreshing = false; }
 }
 

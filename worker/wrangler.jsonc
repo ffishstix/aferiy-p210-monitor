@@ -3,6 +3,7 @@
   "name": "aferiy-p210-cloud-collector",
   "main": "src/index.js",
   "compatibility_date": "2026-11-10",
+  "vars": { "OPTICS_SYSTEM_ID": "20739", "OPTICS_SITE_ID": "17760", "OPTICS_CLIENT_ID": "14826" },
   "triggers": { "crons": ["* * * * *"] },
   "d1_databases": [{
     "binding": "DB",

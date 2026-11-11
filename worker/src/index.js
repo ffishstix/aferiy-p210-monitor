@@ -1,5 +1,6 @@
 import { connectPacket, decodeHolding, decodeModbus, isWriteAck, md5, parsePacket, publishPacket, readRequest, signature, subscribePacket, writeRequest } from './protocol.js';
 import { plausibleSettings, resolveControl } from './controls.js';
+import { collectFarm } from './optics.js';
 
 // BrightEMS cloud protocol, based on the community Fossibot Home Assistant integration.
 const API_URL = 'https://api.next.bspapp.com/client';
@@ -174,7 +175,10 @@ export async function collect(env) {
   return { device:id, recordedAt, charge:reading.charge_percent };
 }
 export default {
-  async scheduled(_controller, env, ctx) { ctx.waitUntil(collect(env)); },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(collect(env).catch(error => console.error('P210 collection:', error.message)));
+    ctx.waitUntil(collectFarm(env).catch(error => console.error('Farm collection:', error.message)));
+  },
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (!['/check', '/command'].includes(path) || request.method !== 'POST' || !env.INGEST_SECRET || request.headers.get('authorization') !== `Bearer ${env.INGEST_SECRET}`) return new Response('Not found', {status:404});

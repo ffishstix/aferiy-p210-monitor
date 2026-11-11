@@ -29,6 +29,17 @@
         <article class="metric"><div class="metric-head"><span>GRID INPUT</span><span class="metric-icon">⌁</span></div><div class="metric-number word" id="grid">—</div><p>Mains detected by P210</p></article>
       </section>
 
+      <section class="farm-panel" aria-labelledby="farm-title">
+        <div class="section-heading"><div><div class="eyebrow">FARM POWER</div><h2 id="farm-title">Main batteries and inverters</h2></div><span id="farm-connection" class="connection">Waiting for farm readings</span></div>
+        <p id="farm-updated" class="farm-updated">The farm gateway has not sent a reading yet.</p>
+        <div class="farm-metrics">
+          <article><span>Solar</span><strong id="farm-solar">—</strong></article>
+          <article><span>Generator</span><strong id="farm-generator">—</strong></article>
+          <article><span>Main battery</span><strong id="farm-charge">—</strong><small id="farm-battery-flow">Power flow unavailable</small></article>
+          <article><span>Farm load</span><strong id="farm-load">—</strong><small id="farm-source">AC source unknown</small></article>
+        </div>
+      </section>
+
       <section class="history-panel">
         <div class="section-heading"><div><div class="eyebrow">HISTORY</div><h2>Charge over time</h2></div><div class="range" aria-label="History range"><button data-hours="1">1H</button><button data-hours="24" class="selected">24H</button><button data-hours="168">7D</button><button data-hours="720">30D</button></div></div>
         <div class="chart-wrap"><div class="chart-axis"><span>100%</span><span>50%</span><span>0%</span></div><svg id="chart" viewBox="0 0 1000 240" preserveAspectRatio="none" role="img" aria-label="Battery charge history"><path class="grid-line" d="M0 0H1000 M0 120H1000 M0 239H1000"></path><path id="chart-area" class="chart-area"></path><path id="chart-line" class="chart-line"></path></svg><div id="chart-empty" class="chart-empty">History will appear after the first cloud reading.</div></div>
