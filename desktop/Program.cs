@@ -18,6 +18,33 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--verify-update-manifest")
+        {
+            try { _ = UpdateService.VerifyManifest(File.ReadAllText(args[1])); Environment.Exit(0); }
+            catch { Environment.Exit(1); }
+        }
+        if (args.Length == 1 && args[0] == "--check-update-download")
+        {
+            try
+            {
+                var staged = UpdateService.CheckAndStageAsync(new Version(0, 0, 0)).GetAwaiter().GetResult();
+                if (staged == null) Environment.Exit(1);
+                File.Delete(staged);
+                Environment.Exit(0);
+            }
+            catch { Environment.Exit(1); }
+        }
+        if (args.Length == 1 && args[0] == "--exercise-update")
+        {
+            try
+            {
+                var staged = UpdateService.CheckAndStageAsync(new Version(0, 0, 0)).GetAwaiter().GetResult();
+                if (staged == null) Environment.Exit(1);
+                UpdateService.ReplaceAfterExit(staged, smokeTest: true);
+                Environment.Exit(0);
+            }
+            catch { Environment.Exit(1); }
+        }
         if (args.Contains("--self-test"))
         {
             if (BatteryState.Classify(new Sample { ChargePercent = 14, Discharging = 1, GridPresent = 0, RecordedAt = DateTimeOffset.UtcNow }) != "low") Environment.Exit(1);
@@ -166,12 +193,15 @@ internal sealed class BatteryApp : ApplicationContext
     private readonly DockForm dock;
     private readonly ControlsForm controls;
     private readonly System.Windows.Forms.Timer timer;
+    private readonly System.Windows.Forms.Timer updateTimer;
     private string? password;
     private string previousState = "offline";
     private int alertLevel;
     private bool fetching;
     private bool loginRequired;
     private bool prompted;
+    private bool updateChecking;
+    private bool exiting;
 
     public BatteryApp()
     {
@@ -192,6 +222,7 @@ internal sealed class BatteryApp : ApplicationContext
         tray.ContextMenuStrip.Items.Add("Battery controls", null, (_, _) => ShowControls());
         tray.ContextMenuStrip.Items.Add("Open website", null, (_, _) => OpenWebsite(Program.DashboardUrl));
         tray.ContextMenuStrip.Items.Add("Change control password", null, (_, _) => ChangePassword());
+        tray.ContextMenuStrip.Items.Add("Check for updates", null, async (_, _) => await CheckForUpdatesAsync(true));
         tray.ContextMenuStrip.Items.Add("Uninstall", null, (_, _) => Uninstall());
         tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => ExitThread());
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ToggleDock(); };
@@ -199,7 +230,11 @@ internal sealed class BatteryApp : ApplicationContext
         timer = new System.Windows.Forms.Timer { Interval = 30_000 };
         timer.Tick += async (_, _) => await RefreshAsync();
         timer.Start();
+        updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
+        updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
+        updateTimer.Start();
         dock.BeginInvoke(new Action(async () => await RefreshAsync()));
+        dock.BeginInvoke(new Action(async () => { await Task.Delay(10_000); if (!exiting) await CheckForUpdatesAsync(); }));
     }
 
     private static void OpenWebsite(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
@@ -213,6 +248,29 @@ internal sealed class BatteryApp : ApplicationContext
         controls.PositionBottomRight();
         controls.Show(); controls.Activate();
         _ = controls.RefreshAsync();
+    }
+
+    private async Task CheckForUpdatesAsync(bool reportCurrent = false)
+    {
+        if (updateChecking || exiting) return;
+        updateChecking = true;
+        try
+        {
+            var staged = await UpdateService.CheckAndStageAsync();
+            if (exiting) return;
+            if (staged == null)
+            {
+                if (reportCurrent) Alert("Battery Watch is up to date", $"Version {UpdateService.CurrentVersion.ToString(3)} is installed.", ToolTipIcon.Info);
+                return;
+            }
+            UpdateService.ReplaceAfterExit(staged);
+            ExitThread();
+        }
+        catch (Exception error)
+        {
+            if (reportCurrent && !exiting) Alert("Battery Watch update failed", error.Message, ToolTipIcon.Warning);
+        }
+        finally { updateChecking = false; }
     }
 
     private void Uninstall()
@@ -238,6 +296,7 @@ internal sealed class BatteryApp : ApplicationContext
             using var helperProcess = Process.Start(helper) ?? throw new System.ComponentModel.Win32Exception("Could not start the uninstall helper");
             SetStartup(false);
             SecretStore.Delete();
+            UpdateService.DeleteStagedFiles();
             ExitThread();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
@@ -365,6 +424,8 @@ internal sealed class BatteryApp : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        exiting = true;
+        updateTimer.Stop(); updateTimer.Dispose();
         timer.Stop(); timer.Dispose();
         tray.Visible = false; tray.Icon?.Dispose(); tray.Dispose();
         controls.Dispose(); dock.Dispose(); client.Dispose();

@@ -17,4 +17,6 @@ __pycache__/
 dist/
 desktop/bin/
 desktop/obj/
+desktop/ReleaseTool/bin/
+desktop/ReleaseTool/obj/
 

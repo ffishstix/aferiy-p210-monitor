@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BatteryWatch</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="update-public.pem" />
+    <Compile Remove="ReleaseTool/**/*.cs" />
+  </ItemGroup>
 </Project>

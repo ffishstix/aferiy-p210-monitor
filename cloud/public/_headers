@@ -4,3 +4,6 @@
   X-Frame-Options: DENY
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'
 
+/updates/latest.json
+  Cache-Control: no-store
+

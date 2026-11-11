@@ -67,8 +67,11 @@ jobs:
         shell: pwsh
         run: |
           dotnet publish desktop/BatteryWatch.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o desktop/smoke
-          & desktop/smoke/BatteryWatch.exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw 'Desktop smoke test failed' }
+          $smoke = Start-Process -FilePath (Resolve-Path desktop/smoke/BatteryWatch.exe) -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
+          if ($smoke.ExitCode -ne 0) { throw 'Desktop smoke test failed' }
+          $manifest = Resolve-Path cloud/public/updates/latest.json
+          $verify = Start-Process -FilePath (Resolve-Path desktop/smoke/BatteryWatch.exe) -ArgumentList @('--verify-update-manifest', $manifest) -Wait -PassThru -WindowStyle Hidden
+          if ($verify.ExitCode -ne 0) { throw 'Release manifest verification failed' }
 
   deploy:
     if: github.event_name == 'push'
