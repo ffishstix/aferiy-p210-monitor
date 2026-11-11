@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let currentHours = 24;
 let customRange = null;
+const zoomStack = [];
 let timer;
 let refreshing = false;
 let pendingRefresh = false;
@@ -89,7 +90,9 @@ function setChart(id, points, from, to, bucketSeconds, series, explain) {
     }
   }
   overlay.replaceChildren();
-  svg.closest('.chart-wrap').querySelector('.chart-tooltip').hidden = true;
+  const readout = svg.closest('.chart-wrap').parentElement.querySelector('.chart-readout');
+  readout.textContent = 'Hover or tap the graph to inspect a point. Drag across it to zoom in.';
+  readout.classList.remove('has-point');
 }
 
 function renderChart(data) {
@@ -170,12 +173,18 @@ function setupChartInspection(svg) {
   const overlay = document.createElementNS(ns, 'g');
   overlay.classList.add('chart-hover');
   svg.append(overlay);
+  const selectionOverlay = document.createElementNS(ns, 'g');
+  selectionOverlay.classList.add('chart-selection');
+  svg.append(selectionOverlay);
   const tip = document.createElement('div');
-  tip.className = 'chart-tooltip';
-  tip.setAttribute('role', 'tooltip');
-  tip.hidden = true;
-  wrap.append(tip);
-  const hide = () => { overlay.replaceChildren(); tip.hidden = true; };
+  tip.className = 'chart-readout';
+  tip.id = `${svg.id}-readout`;
+  tip.setAttribute('role', 'status');
+  tip.setAttribute('aria-live', 'polite');
+  tip.textContent = 'Hover or tap the graph to inspect a point. Drag across it to zoom in.';
+  wrap.parentElement.querySelector('.chart-footer').after(tip);
+  svg.setAttribute('aria-describedby', tip.id);
+  const hide = () => { overlay.replaceChildren(); tip.textContent = 'Hover or tap the graph to inspect a point. Drag across it to zoom in.'; tip.classList.remove('has-point'); };
   const show = index => {
     const chart = charts[svg.id];
     if (!chart?.points.length) return;
@@ -200,13 +209,37 @@ function setupChartInspection(svg) {
     const title = document.createElement('strong'); title.textContent = when(point.recorded_at); tip.append(title);
     for (const line of chart.explain(point)) { const row = document.createElement('p'); row.textContent = line; tip.append(row); }
     const note = document.createElement('small'); note.textContent = chart.bucketSeconds > 60 ? `Values are averages over about ${Math.round(chart.bucketSeconds / 60)} minutes.` : 'Values are from this one-minute interval.'; tip.append(note);
-    tip.hidden = false;
-    const svgRect = svg.getBoundingClientRect(), wrapRect = wrap.getBoundingClientRect();
-    tip.style.left = `${Math.max(0, Math.min(wrapRect.width - tip.offsetWidth, svgRect.left - wrapRect.left + x / 1000 * svgRect.width - tip.offsetWidth / 2))}px`;
+    tip.classList.add('has-point');
+  };
+  const plotX = clientX => {
+    const rect = svg.getBoundingClientRect();
+    return Math.max(0, Math.min(1000, (clientX - rect.left) / rect.width * 1000));
+  };
+  const timeAt = (chart, x) => chart.from + x / 1000 * (chart.to - chart.from);
+  let drag = null;
+  const drawSelection = (a, b) => {
+    selectionOverlay.replaceChildren();
+    const left = Math.min(a, b), width = Math.abs(b - a);
+    if (width < 2) return;
+    const band = document.createElementNS(ns, 'rect');
+    band.setAttribute('class', 'chart-zoom-band');
+    band.setAttribute('x', left); band.setAttribute('y', 0); band.setAttribute('width', width); band.setAttribute('height', 240);
+    selectionOverlay.append(band);
   };
   svg.addEventListener('pointermove', event => {
     const chart = charts[svg.id];
-    if (!chart?.points.length) return;
+    if (!chart) return;
+    if (drag && event.pointerId === drag.pointerId) {
+      drag.endX = plotX(event.clientX);
+      drawSelection(drag.startX, drag.endX);
+      if (Math.abs(drag.endX - drag.startX) > 8) {
+        overlay.replaceChildren();
+        tip.textContent = `Release to zoom: ${when(new Date(timeAt(chart, Math.min(drag.startX, drag.endX))))} to ${when(new Date(timeAt(chart, Math.max(drag.startX, drag.endX))))}.`;
+        tip.classList.add('has-point');
+      }
+      return;
+    }
+    if (!chart.points.length) return;
     const rect = svg.getBoundingClientRect();
     const time = chart.from + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * (chart.to - chart.from);
     let low = 0, high = chart.points.length;
@@ -215,8 +248,32 @@ function setupChartInspection(svg) {
     if (Math.abs(Date.parse(chart.points[index].recorded_at) - time) > Math.max(120000, chart.bucketSeconds * 2000)) { hide(); return; }
     show(index);
   });
-  svg.addEventListener('pointerdown', () => svg.focus());
-  svg.addEventListener('pointerleave', () => { if (document.activeElement !== svg) hide(); });
+  svg.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    svg.focus();
+    drag = { pointerId: event.pointerId, startX: plotX(event.clientX), endX: plotX(event.clientX) };
+    svg.setPointerCapture(event.pointerId);
+  });
+  svg.addEventListener('pointerup', event => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.endX = plotX(event.clientX);
+    const chart = charts[svg.id];
+    const start = Math.min(drag.startX, drag.endX), end = Math.max(drag.startX, drag.endX);
+    selectionOverlay.replaceChildren();
+    drag = null;
+    if (!chart || end - start < 8) return;
+    const from = Math.round(timeAt(chart, start)), to = Math.round(timeAt(chart, end));
+    if (to - from < 60000) { tip.textContent = 'Select at least one minute to zoom in.'; return; }
+    zoomStack.push({ customRange, currentHours });
+    customRange = { from, to };
+    $('history-from').value = localInputValue(new Date(from)); $('history-to').value = localInputValue(new Date(to));
+    $('history-search-message').textContent = `Zoomed to ${when(new Date(from))} to ${when(new Date(to))} across all graphs.`;
+    document.querySelectorAll('[data-hours]').forEach(button => button.classList.remove('selected'));
+    $('zoom-back').disabled = false;
+    void refresh();
+  });
+  svg.addEventListener('pointercancel', () => { drag = null; selectionOverlay.replaceChildren(); hide(); });
+  svg.addEventListener('pointerleave', () => { if (!drag && document.activeElement !== svg) hide(); });
   svg.addEventListener('focus', () => { const chart = charts[svg.id]; if (chart?.points.length) show(chart.index ?? chart.points.length - 1); });
   svg.addEventListener('blur', hide);
   svg.addEventListener('keydown', event => {
@@ -265,7 +322,7 @@ document.querySelectorAll('[data-chart]').forEach(setupChartInspection);
 const setSearchInputs = () => { $('history-from').value = localInputValue(new Date(Date.now() - currentHours * 3600000)); $('history-to').value = localInputValue(new Date()); };
 setSearchInputs();
 document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => {
-  currentHours = Number(button.dataset.hours); customRange = null; setSearchInputs();
+  currentHours = Number(button.dataset.hours); customRange = null; zoomStack.length = 0; $('zoom-back').disabled = true; setSearchInputs();
   $('history-search-message').textContent = '';
   document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button));
   refresh();
@@ -278,14 +335,26 @@ $('history-search').addEventListener('submit', event => {
     return;
   }
   customRange = { from, to };
+  zoomStack.length = 0; $('zoom-back').disabled = true;
   $('history-search-message').textContent = `Showing ${when(new Date(from))} to ${when(new Date(to))} across all graphs.`;
   document.querySelectorAll('[data-hours]').forEach(b => b.classList.remove('selected'));
   refresh();
 });
 $('history-latest').addEventListener('click', () => {
-  currentHours = 24; customRange = null; setSearchInputs(); $('history-search-message').textContent = '';
+  currentHours = 24; customRange = null; zoomStack.length = 0; $('zoom-back').disabled = true; setSearchInputs(); $('history-search-message').textContent = '';
   document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b.dataset.hours === '24'));
   refresh();
+});
+$('zoom-back').addEventListener('click', () => {
+  const previous = zoomStack.pop();
+  if (!previous) return;
+  customRange = previous.customRange; currentHours = previous.currentHours;
+  if (customRange) { $('history-from').value = localInputValue(new Date(customRange.from)); $('history-to').value = localInputValue(new Date(customRange.to)); }
+  else setSearchInputs();
+  $('zoom-back').disabled = zoomStack.length === 0;
+  $('history-search-message').textContent = customRange ? `Showing ${when(new Date(customRange.from))} to ${when(new Date(customRange.to))} across all graphs.` : `Showing the latest ${currentHours} hours across all graphs.`;
+  document.querySelectorAll('[data-hours]').forEach(button => button.classList.toggle('selected', !customRange && Number(button.dataset.hours) === currentHours));
+  void refresh();
 });
 refresh(true); timer = setInterval(() => refresh(), 30000);
 
