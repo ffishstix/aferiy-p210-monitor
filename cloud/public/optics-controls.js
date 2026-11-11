@@ -40,7 +40,9 @@ function categoryFor(device, tab, attribute) {
 }
 
 function allFields() {
-  return (farmSettings?.devices || []).flatMap(device => device.tabs.flatMap(tab => tab.subsections.flatMap(section => section.attributes.map(attribute => ({ device, tab, section, attribute, category: categoryFor(device, tab, attribute) })))));
+  const devices = (farmSettings?.devices || []).flatMap(device => device.tabs.flatMap(tab => tab.subsections.flatMap(section => section.attributes.map(attribute => ({ device, tab, section, attribute, category: categoryFor(device, tab, attribute) })))));
+  const setup = (farmSettings?.setup || []).map(attribute => ({ device: { model: 'System setup', port: 'setup' }, tab: { name: 'Registration' }, section: { name: null }, attribute, category: attribute.category }));
+  return [...devices, ...setup];
 }
 
 function text(tag, value, className) {
@@ -166,6 +168,10 @@ function renderFarmSettings() {
           choice.textContent = option.text;
           input.append(choice);
         }
+      } else if (attribute.type === 'text') {
+        input = document.createElement('input');
+        input.type = 'text';
+        input.maxLength = 80;
       } else {
         input = document.createElement('input');
         input.type = 'number';
@@ -182,7 +188,9 @@ function renderFarmSettings() {
       button.disabled = !canChange();
       button.addEventListener('click', () => {
         if (!input.reportValidity()) return;
-        sendFarmChange({ kind: 'setting', port: device.port, key: attribute.key, expectedCurrent: String(attribute.current), value: input.value }, `${device.model} ${attribute.label}`, String(attribute.current), input.value);
+        const payload = { kind: device.port === 'setup' ? 'system' : 'setting', key: attribute.key, expectedCurrent: String(attribute.current), value: input.value };
+        if (device.port !== 'setup') payload.port = device.port;
+        sendFarmChange(payload, `${device.model} ${attribute.label}`, String(attribute.current), input.value);
       });
       edit.append(input, button);
       row.append(label, current, edit);

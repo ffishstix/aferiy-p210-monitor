@@ -9,7 +9,7 @@ export async function onRequestPost({ request, env }) {
   if (!env.CONTROL_WORKER || !env.INGEST_SECRET) return json({ error: 'Farm controls are not configured' }, 503);
   let body;
   try { body = await readBody(request); } catch { return json({ error: 'Invalid request' }, 400); }
-  if (!body || !['setting', 'quick'].includes(body.kind) || !Number.isSafeInteger(body.port ?? 0)
+  if (!body || !['setting', 'quick', 'system'].includes(body.kind) || !Number.isSafeInteger(body.port ?? 0)
       || typeof body.key !== 'string' || typeof body.expectedCurrent !== 'string'
       || !['string', 'number'].includes(typeof body.value)) return json({ error: 'Invalid OpticsRE change' }, 400);
   try {

@@ -42,9 +42,10 @@ async function opticsRequest(env, path, body) {
 
 export async function readOpticsControls(env) {
   const ids = systemIds(env);
-  const [settings, buttons] = await Promise.all([
+  const [settings, buttons, registration] = await Promise.all([
     opticsRequest(env, '/legacy/device-settings', ids),
     opticsRequest(env, '/legacy/easy-buttons', ids),
+    opticsRequest(env, '/legacy/device-registration', ids),
   ]);
   const editable = (settings.devices || []).map(device => ({
     model: device.modelNumber,
@@ -72,12 +73,45 @@ export async function readOpticsControls(env) {
     options: easy[key]?.options || [],
     disabled: easy[key]?.isDisabled !== false,
   }]));
-  return { online: settings.isOnline === true, accessLevel: settings.siteAccessLevel, pending: settings.pendingPropertyInstructionCount || easy.pendingCommandsCount || 0, devices: editable, quick, readAt: new Date().toISOString() };
+  const setup = registration.userHasFullControl ? [
+    { key: 'name', label: 'System name', current: registration.name, type: 'text', category: 'system' },
+    { key: 'batteryType', label: 'Battery type', current: registration.batteryType, options: ['Lithium Ion', 'Lead-acid'].map(text => ({ text })), category: 'battery' },
+    { key: 'systemBatteryVoltage', label: 'Nominal battery voltage', current: String(registration.systemBatteryVoltage), options: [12, 24, 36, 48, 60].map(value => ({ text: String(value) })), unit: 'V', category: 'battery' },
+    { key: 'batteryCapacity', label: 'Battery capacity', current: String(registration.batteryCapacity), range: { min: 25, max: 10000, increment: 1 }, unit: 'Ah', category: 'battery' },
+    { key: 'batteryVoltageDropLimit', label: 'Low battery warning voltage', current: String(registration.batteryVoltageDropLimit), range: { min: 0, max: 60, increment: 0.1 }, unit: 'V', category: 'battery' },
+    { key: 'pVArraySizeKW', label: 'Solar array size', current: String(registration.pvArraySizeKW), range: { min: 0, max: 50, increment: 0.1 }, unit: 'kW', category: 'solar' },
+  ] : [];
+  return { online: settings.isOnline === true, accessLevel: settings.siteAccessLevel, pending: settings.pendingPropertyInstructionCount || easy.pendingCommandsCount || 0, devices: editable, quick, setup, readAt: new Date().toISOString() };
 }
 
 export async function changeOpticsControl(env, command) {
   const ids = systemIds(env);
   if (!command || typeof command !== 'object' || typeof command.expectedCurrent !== 'string') throw new Error('Invalid OpticsRE change');
+  if (command.kind === 'system') {
+    const allowed = ['name', 'batteryType', 'systemBatteryVoltage', 'batteryCapacity', 'batteryVoltageDropLimit', 'pVArraySizeKW'];
+    if (!allowed.includes(command.key) || typeof command.value !== 'string' || command.value.length > 100) throw new Error('Invalid system setting');
+    const registration = await opticsRequest(env, '/legacy/device-registration', ids);
+    if (!registration.isOnline || !registration.userHasFullControl) throw new Error('System setup is unavailable');
+    const source = command.key === 'pVArraySizeKW' ? registration.pvArraySizeKW : registration[command.key];
+    if (String(source) !== command.expectedCurrent) throw new Error('System setup changed since it was loaded; refresh first');
+    let value = command.value;
+    if (command.key === 'name') {
+      if (!value.trim() || value.length > 80) throw new Error('Invalid system name');
+    } else if (command.key === 'batteryType') {
+      if (!['Lithium Ion', 'Lead-acid'].includes(value)) throw new Error('Invalid battery type');
+    } else {
+      value = Number(value);
+      const ranges = { batteryCapacity: [25, 10000], batteryVoltageDropLimit: [0, 60], pVArraySizeKW: [0, 50] };
+      if (command.key === 'systemBatteryVoltage' ? ![12, 24, 36, 48, 60].includes(value) : !Number.isFinite(value) || value < ranges[command.key][0] || value > ranges[command.key][1]) throw new Error('Value is outside the allowed range');
+    }
+    if (String(value) === command.expectedCurrent) throw new Error('System setup already has that value');
+    const updated = { ...registration, [command.key === 'name' ? 'name' : command.key === 'pVArraySizeKW' ? 'pvArraySizeKW' : command.key]: value };
+    const payload = { systemId: ids.systemId, siteId: ids.siteId, systemName: updated.name, macAddress: updated.macAddress, batteryType: updated.batteryType, systemBatteryVoltage: updated.systemBatteryVoltage, pVArraySizeKW: updated.pvArraySizeKW, batteryVoltageDropLimit: updated.batteryVoltageDropLimit, batteryCapacity: updated.batteryCapacity, rowVersion: updated.rowVersion,
+      devices: (updated.devices || []).map(device => ({ portNumber: device.portNumber, deviceName: device.portNumber === 65535 ? '' : device.deviceName || '', modelNumber: device.modelNumber || '', oldModelNumber: device.oldModelNumber || '', isModelNumberExists: device.isModelNumberExists, isRegistered: device.isRegistered, serialNumber: device.serialNumber || '' })) };
+    const result = await opticsRequest(env, '/legacy/update-system-device-registration', payload);
+    if (result.success !== true) throw new Error('OpticsRE did not confirm the system setup update');
+    return { accepted: true, pending: 0, message: 'OpticsRE accepted the system setup update. Refresh to verify the saved value.' };
+  }
   if (command.kind === 'setting') {
     if (!Number.isSafeInteger(command.port) || typeof command.key !== 'string' || command.key.length > 100 || typeof command.value !== 'string' || command.value.length > 100) throw new Error('Invalid OpticsRE setting');
     const settings = await opticsRequest(env, '/legacy/device-settings', ids);
