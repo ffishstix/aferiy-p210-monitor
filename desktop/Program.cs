@@ -124,6 +124,7 @@ internal sealed class FarmSample
     [JsonPropertyName("generator_running")] public int? GeneratorRunning { get; set; }
     [JsonPropertyName("main_charge_percent")] public double? MainChargePercent { get; set; }
     [JsonPropertyName("main_battery_w")] public double? MainBatteryW { get; set; }
+    [JsonPropertyName("main_battery_v")] public double? MainBatteryV { get; set; }
     [JsonPropertyName("load_w")] public double? LoadW { get; set; }
     [JsonPropertyName("ac_source")] public string? AcSource { get; set; }
 }

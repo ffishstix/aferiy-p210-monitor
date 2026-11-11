@@ -42,7 +42,7 @@ function renderFarm({ sample: s, status }) {
   $('farm-updated').textContent = s ? `Last reading ${when(s.recorded_at)}${status === 'stale' ? ' · figures may have changed' : ''}` : 'The farm gateway has not sent a reading yet.';
   $('farm-solar').textContent = s?.solar_w == null ? '—' : `${value(s.solar_w)} W`;
   $('farm-generator').textContent = s?.generator_running === 0 ? 'Off' : s?.generator_w == null ? s?.generator_running === 1 ? 'Running' : '—' : `${value(s.generator_w)} W`;
-  $('farm-charge').textContent = s?.main_charge_percent == null ? '—' : `${value(s.main_charge_percent)}%`;
+  $('farm-charge').textContent = s?.main_charge_percent != null ? `${value(s.main_charge_percent)}%` : s?.main_battery_v != null ? `${value(s.main_battery_v, 1)} V` : '—';
   $('farm-load').textContent = s?.load_w == null ? '—' : `${value(s.load_w)} W`;
   $('farm-battery-flow').textContent = s?.main_battery_w == null ? 'Power flow unavailable' : `${Math.abs(s.main_battery_w).toFixed(0)} W ${s.main_battery_w > 0 ? 'charging' : s.main_battery_w < 0 ? 'draining' : 'balanced'}`;
   $('farm-source').textContent = s?.ac_source ? `AC source: ${s.ac_source}` : 'AC source unknown';

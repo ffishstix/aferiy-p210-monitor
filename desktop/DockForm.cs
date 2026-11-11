@@ -120,7 +120,7 @@ internal sealed class DockForm : Form
         if (sample == null) { farm.Text = "Waiting for farm readings"; farmDetail.Text = "Main battery, solar and generator unavailable"; return; }
         var generator = sample.GeneratorRunning == 0 ? "Off" : sample.GeneratorW is double power ? $"{power:0} W" : sample.GeneratorRunning == 1 ? "Running" : "—";
         farm.Text = $"Solar {Watts(sample.SolarW)}  ·  Generator {generator}";
-        var charge = sample.MainChargePercent is double pct ? $"{pct:0}%" : "—";
+        var charge = sample.MainChargePercent is double pct ? $"{pct:0}%" : sample.MainBatteryV is double volts ? $"{volts:0.0} V" : "—";
         var flow = sample.MainBatteryW is double watts ? watts > 0 ? "charging" : watts < 0 ? "draining" : "balanced" : "flow unknown";
         farmDetail.Text = $"Main battery {charge}, {flow}" + (live ? "" : " · old reading");
     }
