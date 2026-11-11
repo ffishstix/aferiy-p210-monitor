@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let currentHours = 24;
 let timer;
+let refreshing = false;
 if (new URLSearchParams(location.search).get('compact') === '1') document.body.classList.add('compact');
 
 const value = (v, digits = 0) => v == null ? '—' : Number(v).toFixed(digits);
@@ -78,9 +79,16 @@ function renderPowerChart(samples, hours) {
   }
 }
 
-async function refresh() {
-  try { const [status, history] = await Promise.all([get('/api/status'), get(`/api/history?hours=${currentHours}`)]); renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours); }
-  catch { $('connection').textContent = 'Website unavailable'; $('connection').className = 'connection warning'; }
+async function refresh(fresh = false) {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const status = await get(fresh ? '/api/status?fresh=1' : '/api/status');
+    const history = await get(`/api/history?hours=${currentHours}`);
+    renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours);
+  }
+  catch { $('connection').textContent = fresh ? 'Fresh reading unavailable' : 'Website unavailable'; $('connection').className = 'connection warning'; }
+  finally { refreshing = false; }
 }
 
 $('compact-toggle').addEventListener('click', () => {
@@ -92,5 +100,5 @@ $('compact-toggle').addEventListener('click', () => {
 });
 if (document.body.classList.contains('compact')) $('compact-toggle').textContent = 'Full view';
 document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => { currentHours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button)); refresh(); }));
-refresh(); timer = setInterval(refresh, 30000);
+refresh(true); timer = setInterval(() => refresh(), 30000);
 

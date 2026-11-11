@@ -13,11 +13,43 @@ test('status is public and selects only displayed measurements', async () => {
   let sql;
   const sample = { recorded_at: new Date().toISOString(), received_at: new Date().toISOString(), charge_percent: 50, input_w: 0, output_w: 20, grid_present: 0, discharging: 1 };
   const env = { DB: { prepare(query) { sql = query; return { first: async () => sample }; } } };
-  const response = await status({ env });
+  const response = await status({ request: new Request('https://example.com/api/status'), env });
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).sample, sample);
   assert.match(sql, /SELECT recorded_at, received_at/);
   assert.doesNotMatch(sql, /\bdevice_id\b|\braw_json\b|SELECT \*/);
+});
+
+test('fresh status collects before reading the newly saved sample, every time', async () => {
+  let collections = 0;
+  let saved = null;
+  const env = {
+    INGEST_SECRET: 'private-key',
+    CONTROL_WORKER: { async fetch(request) {
+      assert.equal(request.method, 'POST');
+      assert.equal(new URL(request.url).pathname, '/check');
+      assert.equal(request.headers.get('authorization'), 'Bearer private-key');
+      saved = { received_at: new Date().toISOString(), charge_percent: ++collections };
+      return Response.json({ ok: true });
+    } },
+    DB: { prepare() { return { first: async () => saved }; } },
+  };
+  const request = new Request('https://example.com/api/status?fresh=1');
+  assert.equal((await (await status({ request, env })).json()).sample.charge_percent, 1);
+  assert.equal((await (await status({ request, env })).json()).sample.charge_percent, 2);
+  assert.equal(collections, 2);
+});
+
+test('failed fresh collection does not present an older sample as current', async () => {
+  let queried = false;
+  const env = {
+    INGEST_SECRET: 'private-key',
+    CONTROL_WORKER: { fetch: async () => new Response('failure', { status: 502 }) },
+    DB: { prepare() { queried = true; throw new Error('Should not read stale data'); } },
+  };
+  const response = await status({ request: new Request('https://example.com/api/status?fresh=1'), env });
+  assert.equal(response.status, 502);
+  assert.equal(queried, false);
 });
 
 test('controls require a signed session and expose no raw registers', async () => {

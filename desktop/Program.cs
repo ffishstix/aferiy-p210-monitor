@@ -202,13 +202,14 @@ internal sealed class BatteryApp : ApplicationContext
     private bool prompted;
     private bool updateChecking;
     private bool exiting;
+    private bool pendingFresh;
 
     public BatteryApp()
     {
-        client = new HttpClient(new HttpClientHandler { CookieContainer = cookies }) { BaseAddress = new Uri(Program.DashboardUrl), Timeout = TimeSpan.FromSeconds(12) };
+        client = new HttpClient(new HttpClientHandler { CookieContainer = cookies }) { BaseAddress = new Uri(Program.DashboardUrl), Timeout = TimeSpan.FromSeconds(40) };
         password = SecretStore.Read();
         controls = new ControlsForm(client);
-        dock = new DockForm(() => _ = RefreshAsync(), () => OpenWebsite(Program.DashboardUrl), ShowControls, Uninstall, SetStartup, StartupEnabled());
+        dock = new DockForm(() => _ = RefreshAsync(true), () => OpenWebsite(Program.DashboardUrl), ShowControls, Uninstall, SetStartup, StartupEnabled());
         _ = dock.Handle;
         dock.FormClosed += (_, _) => ExitThread();
         tray = new NotifyIcon
@@ -233,7 +234,7 @@ internal sealed class BatteryApp : ApplicationContext
         updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
         updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync();
         updateTimer.Start();
-        dock.BeginInvoke(new Action(async () => await RefreshAsync()));
+        dock.BeginInvoke(new Action(async () => await RefreshAsync(true)));
         dock.BeginInvoke(new Action(async () => { await Task.Delay(10_000); if (!exiting) await CheckForUpdatesAsync(); }));
     }
 
@@ -329,16 +330,17 @@ internal sealed class BatteryApp : ApplicationContext
         else key.DeleteValue("BatteryWatch", false);
     }
 
-    private async Task<Sample?> GetSampleAsync()
+    private async Task<Sample?> GetSampleAsync(bool fresh)
     {
         loginRequired = false;
-        using var response = await client.GetAsync("/api/status");
+        var path = fresh ? "/api/status?fresh=1" : "/api/status";
+        using var response = await client.GetAsync(path);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             if (string.IsNullOrEmpty(password)) { loginRequired = true; return null; }
             using var login = await client.PostAsJsonAsync("/api/login", new { password });
             if (!login.IsSuccessStatusCode) { loginRequired = true; return null; }
-            using var retry = await client.GetAsync("/api/status");
+            using var retry = await client.GetAsync(path);
             retry.EnsureSuccessStatusCode();
             return (await retry.Content.ReadFromJsonAsync<StatusResult>())?.Sample;
         }
@@ -346,13 +348,13 @@ internal sealed class BatteryApp : ApplicationContext
         return (await response.Content.ReadFromJsonAsync<StatusResult>())?.Sample;
     }
 
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool fresh = false)
     {
-        if (fetching) return;
+        if (fetching) { if (fresh) pendingFresh = true; return; }
         fetching = true;
         try
         {
-            var sample = await GetSampleAsync();
+            var sample = await GetSampleAsync(fresh);
             Update(sample);
             if (loginRequired && !prompted)
             {
@@ -364,7 +366,15 @@ internal sealed class BatteryApp : ApplicationContext
         catch (HttpRequestException) { Update(null); }
         catch (TaskCanceledException) { Update(null); }
         catch (JsonException) { Update(null); }
-        finally { fetching = false; }
+        finally
+        {
+            fetching = false;
+            if (pendingFresh && !exiting)
+            {
+                pendingFresh = false;
+                _ = RefreshAsync(true);
+            }
+        }
     }
 
     private void Update(Sample? sample)
