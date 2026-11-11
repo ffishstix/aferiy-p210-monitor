@@ -161,13 +161,17 @@ internal static class UpdateService
             $backup = {{Quote(executable + ".previous")}}
             try {
               Wait-Process -Id {{Environment.ProcessId}} -ErrorAction SilentlyContinue
-              if ((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash -ne {{Quote(expectedHash)}}) { throw 'Update checksum changed after download' }
+              $sha = [System.Security.Cryptography.SHA256]::Create()
+              try { $actualHash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($staged))).Replace('-', '') }
+              finally { $sha.Dispose() }
+              if ($actualHash -ne {{Quote(expectedHash)}}) { throw 'Update checksum changed after download' }
               Copy-Item -LiteralPath $target -Destination $backup -Force
               Copy-Item -LiteralPath $staged -Destination $target -Force
               try { Start-Process -FilePath $target {{restartArgument}}-WindowStyle Hidden -ErrorAction Stop }
               catch { Copy-Item -LiteralPath $backup -Destination $target -Force; throw }
               Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
               Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath {{Quote(log)}} -Force -ErrorAction SilentlyContinue
             } catch {
               Add-Content -LiteralPath {{Quote(log)}} -Value $_.Exception.Message -ErrorAction SilentlyContinue
               if (Test-Path -LiteralPath $target) { Start-Process -FilePath $target {{restartArgument}}-WindowStyle Hidden -ErrorAction SilentlyContinue }
