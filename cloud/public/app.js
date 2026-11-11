@@ -1,7 +1,10 @@
 const $ = id => document.getElementById(id);
 let currentHours = 24;
+let customRange = null;
 let timer;
 let refreshing = false;
+let pendingRefresh = false;
+const charts = {};
 if (new URLSearchParams(location.search).get('compact') === '1') document.body.classList.add('compact');
 
 const value = (v, digits = 0) => v == null ? '—' : Number(v).toFixed(digits);
@@ -10,6 +13,24 @@ const clock = minutes => {
   if (minutes == null) return '—';
   const rounded = Math.max(0, Math.round(minutes));
   return rounded < 60 ? `${rounded} min` : `${Math.floor(rounded / 60)}h ${rounded % 60}m`;
+};
+const watts = v => v == null ? 'unavailable' : `${Math.round(v).toLocaleString()} W`;
+const chartX = (iso, from, to) => Math.max(0, Math.min(1000, (Date.parse(iso) - from) / (to - from) * 1000));
+const linePath = (points, field, from, to, yFor, gap) => {
+  let path = '', previous = null;
+  for (const point of points) {
+    const time = Date.parse(point.recorded_at), reading = point[field];
+    if (reading == null || !Number.isFinite(Number(reading))) { previous = null; continue; }
+    const x = chartX(point.recorded_at, from, to), y = yFor(Number(reading));
+    path += `${previous === null || time - previous > gap ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+    previous = time;
+  }
+  return path;
+};
+const historyQuery = () => customRange ? `from=${encodeURIComponent(new Date(customRange.from).toISOString())}&to=${encodeURIComponent(new Date(customRange.to).toISOString())}` : `hours=${currentHours}`;
+const localInputValue = date => {
+  const pad = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 async function get(url) {
@@ -48,66 +69,188 @@ function renderFarm({ sample: s, status }) {
   $('farm-source').textContent = s?.ac_source ? `AC source: ${s.ac_source}` : 'AC source unknown';
 }
 
-function renderChart(samples, hours) {
-  const points = samples.filter(s => s.charge_percent != null && Number.isFinite(Date.parse(s.recorded_at)));
-  $('chart-empty').hidden = points.length > 0;
-  $('range-start').textContent = when(new Date(Date.now() - hours * 3600000).toISOString());
-  $('range-end').textContent = when(new Date().toISOString());
-  if (!points.length) { $('chart-line').setAttribute('d', ''); $('chart-area').setAttribute('d', ''); return; }
-  const start = Date.now() - hours * 3600000, width = hours * 3600000;
-  const coords = points.map(s => [Math.max(0, Math.min(1000, (Date.parse(s.recorded_at) - start) / width * 1000)), 240 - Number(s.charge_percent) * 2.4]);
-  const segments = [];
-  let segment = [];
-  for (let i = 0; i < coords.length; i++) {
-    if (i && Date.parse(points[i].recorded_at) - Date.parse(points[i-1].recorded_at) > Math.max(120000, width / 50)) { segments.push(segment); segment = []; }
-    segment.push(coords[i]);
+function setChart(id, points, from, to, bucketSeconds, series, explain) {
+  charts[id] = { points, from, to, bucketSeconds, series, explain };
+  const svg = $(id);
+  const overlay = svg.querySelector('.chart-hover');
+  let dots = svg.querySelector('.chart-isolated');
+  if (!dots) { dots = document.createElementNS('http://www.w3.org/2000/svg', 'g'); dots.classList.add('chart-isolated'); overlay.before(dots); }
+  dots.replaceChildren();
+  const gap = Math.max(bucketSeconds * 2500, 120000);
+  for (let i = 0; i < points.length; i++) {
+    const time = Date.parse(points[i].recorded_at);
+    if ((i > 0 && time - Date.parse(points[i - 1].recorded_at) <= gap) || (i < points.length - 1 && Date.parse(points[i + 1].recorded_at) - time <= gap)) continue;
+    for (const item of series) {
+      if (points[i][item.field] == null) continue;
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', chartX(points[i].recorded_at, from, to)); dot.setAttribute('cy', item.y(Number(points[i][item.field])));
+      dot.setAttribute('r', 3); dot.setAttribute('fill', item.color);
+      dots.append(dot);
+    }
   }
-  segments.push(segment);
-  $('chart-line').setAttribute('d', segments.map(seg => seg.map(([x,y],i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')).join(' '));
-  $('chart-area').setAttribute('d', segments.map(seg => seg.length > 1 ? `M${seg[0][0].toFixed(1)} 240 ` + seg.map(([x,y]) => `L${x.toFixed(1)} ${y.toFixed(1)}`).join(' ') + ` L${seg.at(-1)[0].toFixed(1)} 240 Z` : '').join(' '));
+  overlay.replaceChildren();
+  svg.closest('.chart-wrap').querySelector('.chart-tooltip').hidden = true;
 }
 
-function renderPowerChart(samples, hours) {
+function renderChart(data) {
+  const { samples, bucketSeconds } = data;
+  const from = Date.parse(data.from), to = Date.parse(data.to);
+  const points = samples.filter(s => s.charge_percent != null && Number.isFinite(Date.parse(s.recorded_at)));
+  $('chart-empty').hidden = points.length > 0;
+  $('range-start').textContent = when(data.from);
+  $('range-end').textContent = when(data.to);
+  const gap = Math.max(bucketSeconds * 2500, 120000);
+  $('chart-line').setAttribute('d', linePath(points, 'charge_percent', from, to, v => 240 - Math.max(0, Math.min(100, v)) * 2.4, gap));
+  const areas = []; let segment = [];
+  for (const point of points) {
+    if (segment.length && Date.parse(point.recorded_at) - Date.parse(segment.at(-1).recorded_at) > gap) { areas.push(segment); segment = []; }
+    segment.push(point);
+  }
+  if (segment.length) areas.push(segment);
+  $('chart-area').setAttribute('d', areas.map(group => group.length > 1 ? `M${chartX(group[0].recorded_at, from, to).toFixed(1)} 240 ` + group.map(point => `L${chartX(point.recorded_at, from, to).toFixed(1)} ${(240 - Number(point.charge_percent) * 2.4).toFixed(1)}`).join(' ') + ` L${chartX(group.at(-1).recorded_at, from, to).toFixed(1)} 240 Z` : '').join(' '));
+  setChart('chart', points, from, to, bucketSeconds, [{ field: 'charge_percent', color: '#bdfb7a', y: v => 240 - Math.max(0, Math.min(100, v)) * 2.4 }], s => {
+    const net = s.input_w != null && s.output_w != null ? s.input_w - s.output_w : null;
+    const direction = s.fault ? 'The P210 reported a fault.' : net == null ? 'Power direction is unavailable.' : net > 25 ? 'The P210 was taking in more power than it supplied.' : net < -25 ? 'The P210 supplied more power than it received.' : 'Input and output were roughly balanced.';
+    return [`AFERIY charge ${value(s.charge_percent, 1)}%.`, direction, `Input ${watts(s.input_w)} · output ${watts(s.output_w)}.`];
+  });
+}
+
+function renderPowerChart(data) {
+  const { samples, bucketSeconds } = data;
+  const from = Date.parse(data.from), to = Date.parse(data.to);
   const points = samples.filter(s => Number.isFinite(Date.parse(s.recorded_at)) && (s.input_w != null || s.output_w != null));
   $('power-empty').hidden = points.length > 0;
-  $('power-range-start').textContent = when(new Date(Date.now() - hours * 3600000).toISOString());
-  $('power-range-end').textContent = when(new Date().toISOString());
+  $('power-range-start').textContent = when(data.from);
+  $('power-range-end').textContent = when(data.to);
   const maximum = Math.max(100, ...points.flatMap(s => [Number(s.input_w) || 0, Number(s.output_w) || 0]));
   const scale = Math.ceil(maximum / 100) * 100;
   $('power-max').textContent = `${scale} W`;
   $('power-mid').textContent = `${scale / 2} W`;
-  const start = Date.now() - hours * 3600000, width = hours * 3600000;
-  for (const [field, element] of [['input_w','power-input-line'], ['output_w','power-output-line']]) {
-    let path = '', previousTime = null;
-    for (const point of points) {
-      if (point[field] == null) { previousTime = null; continue; }
-      const time = Date.parse(point.recorded_at);
-      const x = Math.max(0, Math.min(1000, (time - start) / width * 1000));
-      const y = 240 - Math.max(0, Math.min(scale, Number(point[field]))) / scale * 240;
-      path += `${previousTime === null || time - previousTime > Math.max(120000, width / 50) ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
-      previousTime = time;
+  const y = v => 240 - Math.max(0, Math.min(scale, v)) / scale * 240;
+  const gap = Math.max(bucketSeconds * 2500, 120000);
+  $('power-input-line').setAttribute('d', linePath(points, 'input_w', from, to, y, gap));
+  $('power-output-line').setAttribute('d', linePath(points, 'output_w', from, to, y, gap));
+  setChart('power-chart', points, from, to, bucketSeconds, [{ field: 'input_w', color: '#74cde2', y }, { field: 'output_w', color: '#f5c46b', y }], s => {
+    const net = s.input_w != null && s.output_w != null ? s.input_w - s.output_w : null;
+    const direction = net == null ? 'Power direction is unavailable.' : net > 25 ? `Input exceeded output by ${watts(net)}; the P210 was charging.` : net < -25 ? `Output exceeded input by ${watts(-net)}; the P210 was draining.` : 'Input and output were roughly balanced.';
+    return [`Input ${watts(s.input_w)} · output ${watts(s.output_w)}.`, `AC input ${watts(s.ac_input_w)} · DC input ${watts(s.dc_input_w)}.`, direction];
+  });
+}
+
+function renderFarmChart(data) {
+  const { samples, bucketSeconds } = data;
+  const from = Date.parse(data.from), to = Date.parse(data.to);
+  const points = samples.filter(s => Number.isFinite(Date.parse(s.recorded_at)) && ['solar_w', 'generator_w', 'main_battery_w', 'load_w'].some(field => s[field] != null));
+  $('farm-empty').hidden = points.length > 0;
+  $('farm-range-start').textContent = when(data.from);
+  $('farm-range-end').textContent = when(data.to);
+  const peak = Math.max(100, ...points.flatMap(s => ['solar_w', 'generator_w', 'main_battery_w', 'load_w'].map(field => Math.abs(Number(s[field]) || 0))));
+  const scale = Math.ceil(peak / 100) * 100;
+  $('farm-max').textContent = `${scale.toLocaleString()} W`;
+  $('farm-min').textContent = `−${scale.toLocaleString()} W`;
+  const y = v => 120 - Math.max(-scale, Math.min(scale, v)) / scale * 119;
+  const gap = Math.max(bucketSeconds * 2500, 120000);
+  const series = [
+    { field: 'solar_w', element: 'farm-solar-line', color: '#bdfb7a', y },
+    { field: 'generator_w', element: 'farm-generator-line', color: '#f5c46b', y },
+    { field: 'load_w', element: 'farm-load-line', color: '#74cde2', y },
+    { field: 'main_battery_w', element: 'farm-battery-line', color: '#de9bfa', y },
+  ];
+  for (const item of series) $(item.element).setAttribute('d', linePath(points, item.field, from, to, y, gap));
+  setChart('farm-chart', points, from, to, bucketSeconds, series, s => {
+    const battery = s.main_battery_w == null ? 'Main battery flow unavailable.' : s.main_battery_w > 25 ? `The main battery gained about ${watts(s.main_battery_w)}.` : s.main_battery_w < -25 ? `The main battery supplied about ${watts(-s.main_battery_w)}.` : 'The main battery was roughly balanced.';
+    const generator = s.generator_running ? 'The generator was running during this interval.' : s.generator_running === 0 ? 'The generator was off.' : 'Generator state is unavailable.';
+    return [`Solar ${watts(s.solar_w)} · generator ${watts(s.generator_w)}.`, `Farm load ${watts(s.load_w)} · battery ${s.main_battery_v == null ? 'voltage unavailable' : `${value(s.main_battery_v, 1)} V`}.`, battery, generator];
+  });
+}
+
+function setupChartInspection(svg) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const wrap = svg.closest('.chart-wrap');
+  const overlay = document.createElementNS(ns, 'g');
+  overlay.classList.add('chart-hover');
+  svg.append(overlay);
+  const tip = document.createElement('div');
+  tip.className = 'chart-tooltip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  wrap.append(tip);
+  const hide = () => { overlay.replaceChildren(); tip.hidden = true; };
+  const show = index => {
+    const chart = charts[svg.id];
+    if (!chart?.points.length) return;
+    index = Math.max(0, Math.min(chart.points.length - 1, index));
+    const point = chart.points[index];
+    const x = chartX(point.recorded_at, chart.from, chart.to);
+    chart.index = index;
+    overlay.replaceChildren();
+    const guide = document.createElementNS(ns, 'line');
+    guide.setAttribute('class', 'chart-hover-line');
+    guide.setAttribute('x1', x); guide.setAttribute('x2', x); guide.setAttribute('y1', 0); guide.setAttribute('y2', 240);
+    overlay.append(guide);
+    for (const series of chart.series) {
+      const reading = point[series.field];
+      if (reading == null) continue;
+      const dot = document.createElementNS(ns, 'circle');
+      dot.setAttribute('class', 'chart-hover-dot');
+      dot.setAttribute('cx', x); dot.setAttribute('cy', series.y(Number(reading))); dot.setAttribute('r', 5); dot.setAttribute('fill', series.color);
+      overlay.append(dot);
     }
-    $(element).setAttribute('d', path);
-  }
+    tip.replaceChildren();
+    const title = document.createElement('strong'); title.textContent = when(point.recorded_at); tip.append(title);
+    for (const line of chart.explain(point)) { const row = document.createElement('p'); row.textContent = line; tip.append(row); }
+    const note = document.createElement('small'); note.textContent = chart.bucketSeconds > 60 ? `Values are averages over about ${Math.round(chart.bucketSeconds / 60)} minutes.` : 'Values are from this one-minute interval.'; tip.append(note);
+    tip.hidden = false;
+    const svgRect = svg.getBoundingClientRect(), wrapRect = wrap.getBoundingClientRect();
+    tip.style.left = `${Math.max(0, Math.min(wrapRect.width - tip.offsetWidth, svgRect.left - wrapRect.left + x / 1000 * svgRect.width - tip.offsetWidth / 2))}px`;
+  };
+  svg.addEventListener('pointermove', event => {
+    const chart = charts[svg.id];
+    if (!chart?.points.length) return;
+    const rect = svg.getBoundingClientRect();
+    const time = chart.from + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * (chart.to - chart.from);
+    let low = 0, high = chart.points.length;
+    while (low < high) { const mid = (low + high) >> 1; if (Date.parse(chart.points[mid].recorded_at) < time) low = mid + 1; else high = mid; }
+    const index = low > 0 && (low === chart.points.length || time - Date.parse(chart.points[low - 1].recorded_at) < Date.parse(chart.points[low].recorded_at) - time) ? low - 1 : low;
+    if (Math.abs(Date.parse(chart.points[index].recorded_at) - time) > Math.max(120000, chart.bucketSeconds * 2000)) { hide(); return; }
+    show(index);
+  });
+  svg.addEventListener('pointerdown', () => svg.focus());
+  svg.addEventListener('pointerleave', () => { if (document.activeElement !== svg) hide(); });
+  svg.addEventListener('focus', () => { const chart = charts[svg.id]; if (chart?.points.length) show(chart.index ?? chart.points.length - 1); });
+  svg.addEventListener('blur', hide);
+  svg.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const chart = charts[svg.id];
+    if (!chart?.points.length) return;
+    event.preventDefault();
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? chart.points.length - 1 : (chart.index ?? chart.points.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1);
+    show(index);
+  });
 }
 
 async function refresh(fresh = false) {
-  if (refreshing) return;
+  if (refreshing) { pendingRefresh = true; return; }
   refreshing = true;
+  const statusRequest = get(fresh ? '/api/status?fresh=1' : '/api/status').catch(() => null);
+  const historyRequest = get(`/api/history?${historyQuery()}&at=${Date.now()}`).catch(() => null);
   const farmRequest = get(`/api/farm/status?at=${Date.now()}`).catch(() => null);
-  try {
-    const status = await get(fresh ? '/api/status?fresh=1' : '/api/status');
-    const history = await get(`/api/history?hours=${currentHours}`);
-    renderStatus(status); renderChart(history.samples, currentHours); renderPowerChart(history.samples, currentHours);
-  }
-  catch { $('connection').textContent = fresh ? 'Fresh reading unavailable' : 'Website unavailable'; $('connection').className = 'connection warning'; }
+  const farmHistoryRequest = get(`/api/farm/history?${historyQuery()}&at=${Date.now()}`).catch(() => null);
+  const status = await statusRequest, history = await historyRequest;
+  if (status) renderStatus(status);
+  else { $('connection').textContent = fresh ? 'Fresh reading unavailable' : 'Website unavailable'; $('connection').className = 'connection warning'; }
+  if (history) { renderChart(history); renderPowerChart(history); }
   try {
     const farm = await farmRequest;
     if (!farm) throw new Error('Farm status unavailable');
     renderFarm(farm);
   }
   catch { $('farm-connection').textContent = 'Farm reading unavailable'; $('farm-connection').className = 'connection warning'; }
-  finally { refreshing = false; }
+  const farmHistory = await farmHistoryRequest;
+  if (farmHistory) renderFarmChart(farmHistory);
+  else { $('farm-empty').hidden = false; $('farm-empty').textContent = 'Farm history is unavailable right now.'; }
+  refreshing = false;
+  if (pendingRefresh) { pendingRefresh = false; void refresh(); }
 }
 
 $('compact-toggle').addEventListener('click', () => {
@@ -118,6 +261,31 @@ $('compact-toggle').addEventListener('click', () => {
   $('compact-toggle').textContent = document.body.classList.contains('compact') ? 'Full view' : 'Compact view';
 });
 if (document.body.classList.contains('compact')) $('compact-toggle').textContent = 'Full view';
-document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => { currentHours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button)); refresh(); }));
+document.querySelectorAll('[data-chart]').forEach(setupChartInspection);
+const setSearchInputs = () => { $('history-from').value = localInputValue(new Date(Date.now() - currentHours * 3600000)); $('history-to').value = localInputValue(new Date()); };
+setSearchInputs();
+document.querySelectorAll('[data-hours]').forEach(button => button.addEventListener('click', () => {
+  currentHours = Number(button.dataset.hours); customRange = null; setSearchInputs();
+  $('history-search-message').textContent = '';
+  document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b === button));
+  refresh();
+}));
+$('history-search').addEventListener('submit', event => {
+  event.preventDefault();
+  const from = new Date($('history-from').value).getTime(), to = new Date($('history-to').value).getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to || to > Date.now() + 300000 || to - from > 720 * 3600000) {
+    $('history-search-message').textContent = 'Choose a start before the end, within a 30-day span and no later than now.';
+    return;
+  }
+  customRange = { from, to };
+  $('history-search-message').textContent = `Showing ${when(new Date(from))} to ${when(new Date(to))} across all graphs.`;
+  document.querySelectorAll('[data-hours]').forEach(b => b.classList.remove('selected'));
+  refresh();
+});
+$('history-latest').addEventListener('click', () => {
+  currentHours = 24; customRange = null; setSearchInputs(); $('history-search-message').textContent = '';
+  document.querySelectorAll('[data-hours]').forEach(b => b.classList.toggle('selected', b.dataset.hours === '24'));
+  refresh();
+});
 refresh(true); timer = setInterval(() => refresh(), 30000);
 

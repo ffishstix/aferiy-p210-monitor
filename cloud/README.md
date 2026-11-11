@@ -7,3 +7,5 @@ The Pages secrets `DASHBOARD_PASSWORD`, `SESSION_SECRET`, and `INGEST_SECRET` mu
 From `cloud/`, run `npm ci` and `npm test`. A push to GitHub `main` triggers the Pages test/deploy workflow. The D1 database ID is in `wrangler.jsonc`; secrets are set in Cloudflare, outside the repository.
 
 Farm telemetry is stored in its own `farm_telemetry` table. `/api/farm/status` and `/api/farm/history` return selected, read-only values to the public dashboard and Windows app. The scheduled Worker writes directly to D1 using encrypted OpticsRE credentials. Apply `schema.sql` before deploying the Worker and website.
+
+The dashboard plots farm solar, generator, load and signed main-battery power alongside P210 charge and input/output charts. All three charts support point inspection by pointer, touch, and keyboard arrows. Enter a start and end time to search any span up to 30 days; the quick range buttons reset the view to recent history. Historical points are bucket averages, and the tooltip labels them as such.

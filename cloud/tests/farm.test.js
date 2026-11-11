@@ -18,5 +18,17 @@ test('farm history has bounded buckets', async () => {
   const env = { DB: { prepare() { return { bind(...args) { bind = args; return { all: async () => ({ results: [] }) }; } }; } } };
   const result = await (await history({ request: new Request('https://example.com/api/farm/history?hours=720'), env })).json();
   assert.equal(result.bucketSeconds, 1740);
-  assert.equal(bind[1], 1740);
+  assert.equal(bind[2], 1740);
+});
+
+test('farm history searches a chosen time span and rejects spans over 30 days', async () => {
+  let bind;
+  const env = { DB: { prepare() { return { bind(...args) { bind = args; return { all: async () => ({ results: [] }) }; } }; } } };
+  const from = '2026-11-10T10:00:00.000Z', to = '2026-11-11T10:00:00.000Z';
+  const request = new Request(`https://example.com/api/farm/history?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  const response = await history({ request, env });
+  assert.equal(response.status, 200);
+  assert.deepEqual(bind.slice(0, 2), [from, to]);
+  const invalid = new Request('https://example.com/api/farm/history?from=2026-10-01T00%3A00%3A00Z&to=2026-11-11T00%3A00%3A00Z');
+  assert.equal((await history({ request: invalid, env })).status, 400);
 });
